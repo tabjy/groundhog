@@ -17,8 +17,15 @@ _cgo_defun.c
 _cgo_gotypes.go
 _cgo_export.*
 
+# Test binary, build with `go test -c`
+*.test
 _testmain.go
 
+# Binaries for programs and plugins
 *.exe
-*.test
-*.prof
+*.dll
+*.so
+*.dylib
+
+# Project-local glide cache, RE: https://github.com/Masterminds/glide/issues/736
+.glide/
