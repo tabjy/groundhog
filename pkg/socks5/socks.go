@@ -1,14 +1,8 @@
 package socks5
 
 import (
-	"fmt"
-
+	"gitlab.com/tabjy/groundhog/pkg/base"
 	"gitlab.com/tabjy/groundhog/pkg/util"
-)
-
-var (
-	ErrInvalidListenHost = fmt.Errorf("invalid listen host")
-	ErrInvalidListenPort = fmt.Errorf("invalid listen port")
 )
 
 type Config struct {
@@ -17,7 +11,7 @@ type Config struct {
 }
 
 func GenerateDefaultConfig() (*Config, error) {
-	port, err := util.GetFreePort()
+	port, err := util.GetAvailPort()
 	if err != nil {
 		return nil, err
 	}
@@ -26,4 +20,8 @@ func GenerateDefaultConfig() (*Config, error) {
 		Host: "127.0.0.1",
 		Port: port,
 	}, nil
+}
+
+func NewServer(config *Config) (*base.Server, error) {
+	return base.NewServer(config.Host, config.Port, handleConn, nil)
 }

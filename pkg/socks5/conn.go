@@ -1,45 +1,13 @@
 package socks5
 
 import (
-	"net"
 	"bufio"
-	"io"
 	"fmt"
-	"strings"
+	"io"
+	"net"
 
 	"gitlab.com/tabjy/groundhog/pkg/util"
-)
-
-const (
-	cmdConnect      byte = 0x01
-	cmdBind         byte = 0x02
-	cmdUdpAssociate byte = 0x03
-)
-
-const (
-	authMethodNoAuth       byte = 0x00
-	authMethodGSSAPI       byte = 0x01
-	authMethodUserPass     byte = 0x02
-	authMethodNoAcceptable byte = 0xff
-)
-
-const (
-	repSucceeded               byte = 0x00
-	repGeneralFailure          byte = 0x01
-	repNotAllowByRuleset       byte = 0x02
-	repNetworkUnreachable      byte = 0x03
-	repHostUnreachable         byte = 0x04
-	repConnectionRefused       byte = 0x05
-	repTtlExpired              byte = 0x06
-	repCommamdNotSupported     byte = 0x07
-	repAddressTypeNotSupported byte = 0x08
-)
-
-var (
-	errUnsupportedSocksVer    = fmt.Errorf("unsupoorted SOCKS version")
-	errNoAcceptableAuthMethod = fmt.Errorf("no supported authentication method")
-	errUnsupportedCmd         = fmt.Errorf("unsupported socks command")
-	errIllegalReservedField   = fmt.Errorf("illegal reserved field")
+	"gitlab.com/tabjy/groundhog/pkg/crypto"
 )
 
 type socksConn struct {
@@ -58,6 +26,10 @@ func newSocksConn(conn net.Conn) *socksConn {
 		req:  bufio.NewReader(conn),
 		res:  writer,
 	}
+}
+
+func handleConn(conn net.Conn, args ...*interface{}) error {
+	return newSocksConn(conn).serve()
 }
 
 // any connection-level fatal error should be returned for logging
@@ -87,7 +59,7 @@ func (c *socksConn) serve() error {
 		return err
 	}
 	if rsv[0] != 0x00 {
-		return errIllegalReservedField
+		return fmt.Errorf(util.ERR_TPL_SOCKS_ILLEGAL_RSV_FIELD, rsv[0])
 	}
 
 	if err := c.readDestAddr(); err != nil {
@@ -107,7 +79,7 @@ func (c *socksConn) checkSocksVer() error {
 
 	// supports SOCKS5 only
 	if ver[0] != byte(0x05) {
-		return errUnsupportedSocksVer
+		return fmt.Errorf(util.ERR_TPL_SOCKS_UNSUPPORTED_VER, ver[0])
 	}
 
 	return nil
@@ -127,13 +99,13 @@ func (c *socksConn) auth() error {
 
 	for method := range c.authMethods {
 		if method == 0x00 {
-			c.res.Write([]byte{0x05, authMethodNoAuth})
+			c.res.Write([]byte{0x05, util.SOCKS_AUTH_NO_AUTH})
 			return nil
 		}
 	}
 
-	c.res.Write([]byte{0x05, authMethodNoAcceptable})
-	return errNoAcceptableAuthMethod
+	c.res.Write([]byte{0x05, util.SOCKS_AUTH_USER_NO_ACCEPTABLE})
+	return fmt.Errorf(util.ERR_TPL_SOCKS_NO_ACCEPTABLE_AUTH_METHOD)
 }
 
 func (c *socksConn) readCmd() error {
@@ -143,12 +115,12 @@ func (c *socksConn) readCmd() error {
 	}
 
 	switch cmd[0] {
-	case cmdConnect, cmdBind, cmdUdpAssociate:
+	case util.SOCKS_CMD_CONNECT, util.SOCKS_CMD_BIND, util.SOCKS_CMD_UDP_ASSOCIATE:
 		c.cmd = cmd[0]
 		return nil
 
 	default:
-		return errUnsupportedCmd
+		return fmt.Errorf(util.ERR_TPL_SOCKS_UNSUPPORTED_CMD, cmd[0])
 	}
 }
 
@@ -156,6 +128,7 @@ func (c *socksConn) readDestAddr() error {
 	addr, err := util.NewAddr().Parse(c.req)
 	if err != nil {
 		// TODO: handel unsupported address type response
+		c.writeReply(util.REP_ADDR_TYP_NOT_SUPPORTED, util.NewAddr())
 		return err
 	}
 	c.destAddr = addr
@@ -166,35 +139,23 @@ func (c *socksConn) readDestAddr() error {
 func (c *socksConn) exec() error {
 	// TODO: add support for BIND and UDPAssociate
 	switch c.cmd {
-	case cmdConnect:
+	case util.SOCKS_CMD_CONNECT:
 		// TODO: implement bypass whitelist
-		// TODO: move actually proxy connection to other packages
-		target, err := net.Dial("tcp", c.destAddr.String())
-		defer target.Close()
-		if err != nil {
-			fmt.Println(c.destAddr.String()+":", err)
-			errMsg := err.Error()
-			// TODO: differentiate more error types
-			switch {
-			case strings.Contains(errMsg, "no such host"):
-				c.sendReply(repHostUnreachable, util.NewAddr())
-			case strings.Contains(errMsg, "connection refused"):
-				c.sendReply(repConnectionRefused, util.NewAddr())
-			case strings.Contains(errMsg, "connection timed out"):
-				c.sendReply(repTtlExpired, util.NewAddr())
-			default:
-				c.sendReply(repGeneralFailure, util.NewAddr())
-			}
 
+		// TODO: connect proxy server
+		target, err := net.Dial("tcp", c.destAddr.String())
+		if err != nil {
+			c.writeReply(util.REP_GENERAL_FAILURE, util.NewAddr())
 			return err
 		}
 
-		if err := c.sendReply(repSucceeded, c.destAddr); err != nil {
+		if err := c.writeReply(util.REP_SUCCEEDED, c.destAddr); err != nil {
 			return err
 		}
 
 		errCh := make(chan error, 2)
 
+		/*
 		go proxy(target, c.req, errCh)
 		go proxy(c.res, target, errCh)
 
@@ -205,24 +166,60 @@ func (c *socksConn) exec() error {
 				return err
 			}
 		}
+		*/
+
+		// proof of concept, to be deleted
+		plainSide, cipherSide, err := crypto.CreateAESCFBPipe([]byte("1234567890ABCDEF"), errCh)
+		plainSide2, cipherSide2, err := crypto.CreateAESCFBPipe([]byte("1234567890ABCDEF"), errCh)
+
+		if err != nil {
+			c.writeReply(util.REP_GENERAL_FAILURE, util.NewAddr())
+			return err
+		}
+
+		// uploading direction
+		go func() {
+			io.Copy(plainSide, c.req)
+		}()
+		go func() {
+			io.Copy(cipherSide2, cipherSide)
+		}()
+		go func() {
+			io.Copy(target, plainSide2)
+		}()
+
+		// downloading direction
+		go func() {
+			io.Copy(plainSide2, target)
+		}()
+		go func() {
+			io.Copy(cipherSide, cipherSide2)
+		}()
+		go func() {
+			io.Copy(c.res, plainSide)
+		}()
+
+
+		<-errCh
 
 	default:
-		return errUnsupportedCmd
+		return fmt.Errorf(util.ERR_TPL_SOCKS_UNSUPPORTED_CMD, c.cmd)
 	}
 	return nil
 }
 
-func (c *socksConn) sendReply(rep byte, addr *util.Addr) error {
+func (c *socksConn) writeReply(rep byte, addr *util.Addr) error {
 	addrBytes, err := addr.Build()
 	if err != nil {
 		return err
 	}
 
-	buf := []byte{0x05, rep, 0x00}
+	buf := make([]byte, 3+len(addrBytes))
+	buf[0] = 0x05
+	buf[1] = rep
+	buf[2] = 0x00
+	copy(buf[3:], addrBytes)
 
-	// writing separately somehow causes addrBytes to be dropped
-	// and results in a malformed SOCKS5 reply
-	buf = append(buf, addrBytes...)
 	if _, err := c.res.Write(buf); err != nil {
 		return err
 	}

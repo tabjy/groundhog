@@ -1,20 +1,10 @@
 package util
 
 import (
-	"net"
+	"bytes"
 	"fmt"
 	"io"
-	"bytes"
-)
-
-const (
-	ATypIPv4   byte = 0x01
-	ATypDomain byte = 0x03
-	ATypIPv6   byte = 0x04
-)
-
-var (
-	errUnsupportedAddrType = fmt.Errorf("unsupported address Typee")
+	"net"
 )
 
 type Addr struct {
@@ -26,7 +16,7 @@ type Addr struct {
 
 func NewAddr() *Addr {
 	return &Addr{
-		ATyp: ATypIPv4,
+		ATyp: ADDR_TYP_IPV4,
 		IP:   []byte{0x00, 0x00, 0x00, 0x00},
 		Port: 0,
 	}
@@ -43,25 +33,25 @@ func (a *Addr) Parse(reader io.Reader) (*Addr, error) {
 	}
 
 	switch Type[0] {
-	case ATypIPv4:
+	case ADDR_TYP_IPV4:
 		addr := make([]byte, 4)
 		if _, err := io.ReadAtLeast(reader, addr, len(addr)); err != nil {
 			return nil, err
 		}
 
-		a.ATyp = ATypIPv4
+		a.ATyp = ADDR_TYP_IPV4
 		a.IP = addr
 
-	case ATypIPv6:
+	case ADDR_TYP_IPV6:
 		addr := make([]byte, 16)
 		if _, err := io.ReadAtLeast(reader, addr, len(addr)); err != nil {
 			return nil, err
 		}
 
-		a.ATyp = ATypIPv6
+		a.ATyp = ADDR_TYP_IPV6
 		a.IP = addr
 
-	case ATypDomain:
+	case ADDR_TYP_DOMAIN:
 		domainLen := []byte{0x00}
 		if _, err := reader.Read(domainLen); err != nil {
 			return nil, err
@@ -72,7 +62,7 @@ func (a *Addr) Parse(reader io.Reader) (*Addr, error) {
 			return nil, err
 		}
 
-		a.ATyp = ATypDomain
+		a.ATyp = ADDR_TYP_DOMAIN
 		a.Domain = string(domain)
 
 		// some SOCKS5 clients don't necessarily follow the rule,
@@ -81,14 +71,14 @@ func (a *Addr) Parse(reader io.Reader) (*Addr, error) {
 		if ip != nil {
 			a.IP = ip
 			if ip.To4() != nil {
-				a.ATyp = ATypIPv4
+				a.ATyp = ADDR_TYP_IPV4
 			} else {
-				a.ATyp = ATypIPv6
+				a.ATyp = ADDR_TYP_IPV6
 			}
 		}
 
 	default:
-		return nil, errUnsupportedAddrType
+		return nil, fmt.Errorf(ERR_TPL_SUPPORTED_ADDR_TYPE, Type[0])
 	}
 
 	portBuf := []byte{0x00, 0x00}
@@ -101,41 +91,44 @@ func (a *Addr) Parse(reader io.Reader) (*Addr, error) {
 }
 
 func (a *Addr) Build() ([]byte, error) {
-	ret := []byte{0x00}
-	ret[0] = a.ATyp
+	var host []byte
 
 	switch a.ATyp {
-	case ATypIPv4:
-		ret = append(ret, a.IP.To4()...)
+	case ADDR_TYP_IPV4:
+		host = []byte(a.IP.To4())
 
-	case ATypIPv6:
-		ret = append(ret, a.IP.To16()...)
+	case ADDR_TYP_IPV6:
+		host = []byte(a.IP.To16())
 
-	case ATypDomain:
-		ret = append(ret, byte(uint8(len(a.Domain))))
-		ret = append(ret, a.Domain...)
+	case ADDR_TYP_DOMAIN:
+		host = append([]byte{byte(len(a.Domain))}, a.Domain...)
 
 	default:
-		return nil, errUnsupportedAddrType
+		return nil, fmt.Errorf(ERR_TPL_SUPPORTED_ADDR_TYPE, a.ATyp)
 	}
 
-	ret = append(ret, []byte{byte(a.Port >> 8), byte(a.Port & 0xff)}...)
-	return ret, nil
+	buf := make([]byte, 1+len(host)+2)
+	buf[0] = a.ATyp
+	copy(buf[1:], host)
+	buf[1+len(host)] = byte(a.Port >> 8)
+	buf[1+len(host)+1] = byte(a.Port & 0xff)
+
+	return buf, nil
 }
 
 func (a Addr) String() string {
 	switch a.ATyp {
-	case ATypIPv4:
+	case ADDR_TYP_IPV4:
 		return fmt.Sprintf("%s:%d", a.IP, a.Port)
 
-	case ATypIPv6:
+	case ADDR_TYP_IPV6:
 		return fmt.Sprintf("[%s]:%d", a.IP, a.Port)
 
-	case ATypDomain:
+	case ADDR_TYP_DOMAIN:
 		return fmt.Sprintf("%s:%d", a.Domain, a.Port)
 
 	default:
 		// this should not happen anyway...
-		return fmt.Sprintf(errUnsupportedAddrType.Error())
+		return fmt.Sprintf(ERR_TPL_SUPPORTED_ADDR_TYPE, a.ATyp)
 	}
 }
