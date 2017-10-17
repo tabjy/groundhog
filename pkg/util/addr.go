@@ -4,6 +4,7 @@ import (
 	"net"
 	"fmt"
 	"io"
+	"bytes"
 )
 
 const (
@@ -29,6 +30,10 @@ func NewAddr() *Addr {
 		IP:   []byte{0x00, 0x00, 0x00, 0x00},
 		Port: 0,
 	}
+}
+
+func (a *Addr) ParseFromBuffer(buf []byte) (*Addr, error) {
+	return a.Parse(bytes.NewReader(buf))
 }
 
 func (a *Addr) Parse(reader io.Reader) (*Addr, error) {

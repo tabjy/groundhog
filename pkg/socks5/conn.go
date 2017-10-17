@@ -155,6 +155,7 @@ func (c *socksConn) readCmd() error {
 func (c *socksConn) readDestAddr() error {
 	addr, err := util.NewAddr().Parse(c.req)
 	if err != nil {
+		// TODO: handel unsupported address type response
 		return err
 	}
 	c.destAddr = addr
@@ -169,6 +170,7 @@ func (c *socksConn) exec() error {
 		// TODO: implement bypass whitelist
 		// TODO: move actually proxy connection to other packages
 		target, err := net.Dial("tcp", c.destAddr.String())
+		defer target.Close()
 		if err != nil {
 			fmt.Println(c.destAddr.String()+":", err)
 			errMsg := err.Error()
@@ -186,7 +188,6 @@ func (c *socksConn) exec() error {
 
 			return err
 		}
-		defer target.Close()
 
 		if err := c.sendReply(repSucceeded, c.destAddr); err != nil {
 			return err

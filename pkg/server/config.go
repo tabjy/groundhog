@@ -1,8 +1,9 @@
-package socks5
+package server
 
 import (
+	"crypto/rsa"
 	"fmt"
-
+	
 	"gitlab.com/tabjy/groundhog/pkg/util"
 )
 
@@ -12,8 +13,10 @@ var (
 )
 
 type Config struct {
-	Host string
-	Port int
+	Host         string
+	Port         int
+	PrivateKey   rsa.PrivateKey
+	CipherMethod []byte
 }
 
 func GenerateDefaultConfig() (*Config, error) {

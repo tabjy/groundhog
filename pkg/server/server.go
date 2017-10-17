@@ -1,10 +1,10 @@
-package socks5
+package server
 
 import (
 	"fmt"
-	"net"
-	"strconv"
 	"time"
+	"strconv"
+	"net"
 )
 
 var (
@@ -12,6 +12,7 @@ var (
 	ErrAlreadyStopped = fmt.Errorf("server has already stopped")
 )
 
+// TODO: too much repeated code between this package and socks5, consider coding a general server
 type Server struct {
 	config     *Config
 	stopSig    chan interface{}
@@ -79,7 +80,7 @@ func (s *Server) Start() error {
 
 			// TODO: implement a general error log package with level control
 			go func() {
-				err := newSocksConn(conn).serve()
+				err := newProxyConn(conn).serve()
 				if err != nil {
 					fmt.Println(err)
 				}
