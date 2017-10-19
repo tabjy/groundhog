@@ -17,4 +17,6 @@ const (
 	ERR_TPL_SOCKS_NOT_ALLOWED_BY_RULESET    = "connection not allowed by ruleset"
 
 	ERR_TPL_SUPPORTED_ADDR_TYPE = "unsupported address type %#x"
+
+	ERR_TPL_CLIENT_NOT_INIT = "local client not initialized"
 )

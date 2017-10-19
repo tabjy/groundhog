@@ -3,6 +3,10 @@ package local
 import (
 	"crypto/rsa"
 	"sync"
+	"fmt"
+	"gitlab.com/tabjy/groundhog/pkg/util"
+	"io"
+	"net"
 )
 
 type Config struct {
@@ -28,11 +32,21 @@ func InitClient(config *Config) {
 	})
 }
 
-func GetClient() *Client {
-	return clientInstance
+func GetClient() (*Client, error) {
+	if clientInstance == nil {
+		return nil, fmt.Errorf(util.ERR_TPL_CLIENT_NOT_INIT)
+	}
+	return clientInstance, nil
 }
 
 
-func (c *Client) handleProxy() error {
+func (c *Client) HandleProxy(req io.Reader, res io.Writer, addr *util.Addr) error {
+	// TODO: implement bypass whitelist
 
 }
+
+
+func (c *Client) getProxyConn(addr *util.Addr) (net.Conn, error) {
+
+}
+

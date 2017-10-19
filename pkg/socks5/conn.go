@@ -7,7 +7,7 @@ import (
 	"net"
 
 	"gitlab.com/tabjy/groundhog/pkg/util"
-	"gitlab.com/tabjy/groundhog/pkg/crypto"
+	"gitlab.com/tabjy/groundhog/pkg/local"
 )
 
 type socksConn struct {
@@ -140,67 +140,14 @@ func (c *socksConn) exec() error {
 	// TODO: add support for BIND and UDPAssociate
 	switch c.cmd {
 	case util.SOCKS_CMD_CONNECT:
-		// TODO: implement bypass whitelist
-
 		// TODO: connect proxy server
-		target, err := net.Dial("tcp", c.destAddr.String())
+		client, err := local.GetClient()
 		if err != nil {
-			c.writeReply(util.REP_GENERAL_FAILURE, util.NewAddr())
 			return err
 		}
-
-		if err := c.writeReply(util.REP_SUCCEEDED, c.destAddr); err != nil {
+		if err := client.HandleProxy(c.req, c.res, c.destAddr); err != nil {
 			return err
 		}
-
-		errCh := make(chan error, 2)
-
-		/*
-		go proxy(target, c.req, errCh)
-		go proxy(c.res, target, errCh)
-
-		for i := 0; i < 2; i++ {
-			err := <-errCh
-			if err != nil {
-				// return from this function closes target (and conn).
-				return err
-			}
-		}
-		*/
-
-		// proof of concept, to be deleted
-		plainSide, cipherSide, err := crypto.CreateAESCFBPipe([]byte("1234567890ABCDEF"), errCh)
-		plainSide2, cipherSide2, err := crypto.CreateAESCFBPipe([]byte("1234567890ABCDEF"), errCh)
-
-		if err != nil {
-			c.writeReply(util.REP_GENERAL_FAILURE, util.NewAddr())
-			return err
-		}
-
-		// uploading direction
-		go func() {
-			io.Copy(plainSide, c.req)
-		}()
-		go func() {
-			io.Copy(cipherSide2, cipherSide)
-		}()
-		go func() {
-			io.Copy(target, plainSide2)
-		}()
-
-		// downloading direction
-		go func() {
-			io.Copy(plainSide2, target)
-		}()
-		go func() {
-			io.Copy(cipherSide, cipherSide2)
-		}()
-		go func() {
-			io.Copy(c.res, plainSide)
-		}()
-
-
-		<-errCh
 
 	default:
 		return fmt.Errorf(util.ERR_TPL_SOCKS_UNSUPPORTED_CMD, c.cmd)
@@ -224,16 +171,4 @@ func (c *socksConn) writeReply(rep byte, addr *util.Addr) error {
 		return err
 	}
 	return nil
-}
-
-type closeWriter interface {
-	CloseWrite() error
-}
-
-func proxy(dst io.Writer, src io.Reader, errCh chan error) {
-	_, err := io.Copy(dst, src)
-	if tcpConn, ok := dst.(closeWriter); ok {
-		tcpConn.CloseWrite()
-	}
-	errCh <- err
 }
