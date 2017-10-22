@@ -17,8 +17,7 @@ type Server struct {
 
 	listener *net.TCPListener
 
-	onConn func(net.Conn, ...*interface{}) error
-	cbArgs []*interface{}
+	onConn func(net.Conn) error
 
 	isRunning  bool
 	stopSig    chan interface{}
@@ -26,7 +25,7 @@ type Server struct {
 }
 
 // cb for callback
-func NewServer(host string, port int, onConn func(net.Conn, ...*interface{}) error, cbArgs ...*interface{}) (*Server, error) {
+func NewServer(host string, port int, onConn func(net.Conn) error) (*Server, error) {
 	if host == "" {
 		host = "0.0.0.0"
 	}
@@ -43,7 +42,6 @@ func NewServer(host string, port int, onConn func(net.Conn, ...*interface{}) err
 		host:       host,
 		port:       port,
 		onConn:     onConn,
-		cbArgs:     cbArgs,
 		stopSig:    make(chan interface{}),
 		stoppedSig: make(chan interface{}),
 		isRunning:  false,
@@ -110,7 +108,7 @@ func (s *Server) acceptConn() error {
 
 	// handle connection in a new goroutine
 	go func() {
-		err := s.onConn(conn, s.cbArgs...)
+		err := s.onConn(conn)
 		if err != nil {
 			util.GetLogger().Println(err)
 		}

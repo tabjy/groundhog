@@ -6,6 +6,7 @@ package util
 import (
 	"net"
 	"io"
+	"strings"
 )
 
 func GetAvailPort() (port int, err error) {
@@ -22,11 +23,35 @@ func GetAvailPort() (port int, err error) {
 type closeWriter interface {
 	CloseWrite() error
 }
+type closeReader interface {
+	CloseRead() error
+}
 
-func Proxy(dst io.Writer, src io.Reader, errCh chan error) {
+func IOCopy(dst io.Writer, src io.Reader, errCh chan error) {
 	_, err := io.Copy(dst, src)
 	if tcpConn, ok := dst.(closeWriter); ok {
 		tcpConn.CloseWrite()
 	}
+	if tcpConn, ok := src.(closeReader); ok {
+		tcpConn.CloseRead()
+	}
 	errCh <- err
+}
+
+func ConnErrToRep(err error) byte {
+	if err == nil {
+		return REP_SUCCEEDED
+	}
+
+	errMsg := err.Error()
+	switch  {
+	case strings.Contains(errMsg, "no such host"):
+		return REP_HOST_UNREACHABLE
+	case strings.Contains(errMsg, "connection refused"):
+		return REP_CONN_REFUSED
+	case strings.Contains(errMsg, "connection timed out"):
+		return REP_TTL_EXPIRED
+	default:
+		return REP_GENERAL_FAILURE
+	}
 }

@@ -10,23 +10,24 @@ import (
 	"crypto/cipher"
 	"io"
 	"crypto/rand"
+	"gitlab.com/tabjy/groundhog/pkg/util"
 )
 
-func CreateAESCFBPipe(key []byte, errCh chan error) (net.Conn, net.Conn, error) {
+func CreateAESCFBPipe(key []byte, errCh chan error) (plainSide net.Conn, cipherSide net.Conn, err error) {
 	return createStreamCipherPipe(key, cipher.NewCFBEncrypter, cipher.NewCFBDecrypter, errCh)
 }
 
-func CreateAESCTRPipe(key []byte, errCh chan error) (net.Conn, net.Conn, error) {
+func CreateAESCTRPipe(key []byte, errCh chan error) (plainSide net.Conn, cipherSide net.Conn, err error) {
 	return createStreamCipherPipe(key, cipher.NewCTR, cipher.NewCTR, errCh)
 }
 
-func CreateAESOFBPipe(key []byte, errCh chan error) (net.Conn, net.Conn, error) {
+func CreateAESOFBPipe(key []byte, errCh chan error) (plainSide net.Conn, cipherSide net.Conn, err error) {
 	return createStreamCipherPipe(key, cipher.NewOFB, cipher.NewOFB, errCh)
 }
 
 // Return a duplex pipe. The key argument should be the AES key,
 // either 16, 24, or 32 bytes to select AES-128, AES-192, or AES-256.
-func createStreamCipherPipe(key []byte, streamEncryptor, streamDecryptor func(block cipher.Block, iv []byte) cipher.Stream, errCh chan error) (net.Conn, net.Conn, error) {
+func createStreamCipherPipe(key []byte, streamEncryptor, streamDecryptor func(block cipher.Block, iv []byte) cipher.Stream, errCh chan error) (plainSide net.Conn, cipherSide net.Conn, err error) {
 	// same session key for both direction
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -35,8 +36,6 @@ func createStreamCipherPipe(key []byte, streamEncryptor, streamDecryptor func(bl
 
 	plainSideInner, plainSideOuter := net.Pipe()
 	cipherSideInner, cipherSideOuter := net.Pipe()
-
-	masterErrCh := make(chan error)
 
 	go func() {
 		// iv should always be AES Block Size, 16 bytes
@@ -49,8 +48,7 @@ func createStreamCipherPipe(key []byte, streamEncryptor, streamDecryptor func(bl
 		}
 		encryptStream := streamEncryptor(block, encryptIV)
 		encryptor := &cipher.StreamWriter{S: encryptStream, W: cipherSideInner}
-		_, err := io.Copy(encryptor, plainSideInner)
-		masterErrCh <- err
+		util.IOCopy(encryptor, plainSideInner, errCh)
 	}()
 
 	go func() {
@@ -61,17 +59,9 @@ func createStreamCipherPipe(key []byte, streamEncryptor, streamDecryptor func(bl
 		}
 		decryptStream := streamDecryptor(block, decryptIV)
 		decryptor := &cipher.StreamReader{S: decryptStream, R: cipherSideInner}
-		_, err := io.Copy(plainSideInner, decryptor)
-		masterErrCh <- err
-	}()
 
-	for i := 0; i < 2; i++ {
-		err := <-masterErrCh
-		if err != nil {
-			errCh <- err
-		}
-	}
+		util.IOCopy(plainSideInner, decryptor, errCh)
+	}()
 
 	return plainSideOuter, cipherSideOuter, nil
 }
-

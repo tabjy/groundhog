@@ -18,6 +18,9 @@ const (
 	REP_CMD_NOT_SUPPORTED      byte = 0x07
 	REP_ADDR_TYP_NOT_SUPPORTED byte = 0x08
 
+	// additional rep code for groundhog protocol
+	REP_CIPHER_NOT_SUPPORTED byte = 0x09
+
 	SOCKS_AUTH_NO_AUTH            byte = 0x00
 	SOCKS_AUTH_GSSAPI             byte = 0x01
 	SOCKS_AUTH_USER_PASS          byte = 0x02

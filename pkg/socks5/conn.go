@@ -7,10 +7,10 @@ import (
 	"net"
 
 	"gitlab.com/tabjy/groundhog/pkg/util"
-	"gitlab.com/tabjy/groundhog/pkg/local"
 )
 
 type socksConn struct {
+	config      *Config
 	conn        net.Conn
 	req         io.Reader
 	res         io.Writer
@@ -19,17 +19,23 @@ type socksConn struct {
 	destAddr    *util.Addr
 }
 
-func newSocksConn(conn net.Conn) *socksConn {
+func newSocksConn(conn net.Conn, config *Config) *socksConn {
 	writer, _ := conn.(io.Writer)
 	return &socksConn{
-		conn: conn,
-		req:  bufio.NewReader(conn),
-		res:  writer,
+		conn:   conn,
+		req:    bufio.NewReader(conn),
+		res:    writer,
+		config: config,
 	}
 }
 
-func handleConn(conn net.Conn, args ...*interface{}) error {
-	return newSocksConn(conn).serve()
+func handleConn(conn net.Conn, arg interface{}) error {
+	fmt.Println(arg)
+	config, ok := arg.(*Config)
+	if !ok {
+		return fmt.Errorf(util.ERR_TPL_SRV_INVALID_SETTING)
+	}
+	return newSocksConn(conn, config).serve()
 }
 
 // any connection-level fatal error should be returned for logging
@@ -141,13 +147,25 @@ func (c *socksConn) exec() error {
 	switch c.cmd {
 	case util.SOCKS_CMD_CONNECT:
 		// TODO: connect proxy server
-		client, err := local.GetClient()
-		if err != nil {
+		target, rep := c.config.Dial(c.destAddr)
+
+		if err := c.writeReply(rep, c.destAddr); err != nil {
 			return err
 		}
-		if err := client.HandleProxy(c.req, c.res, c.destAddr); err != nil {
-			return err
+
+		errCh := make(chan error, 2)
+		go util.IOCopy(target, c.req, errCh)
+		go util.IOCopy(c.res, target, errCh)
+
+		// Wait
+		for i := 0; i < 2; i++ {
+			e := <-errCh
+			if e != nil {
+				// return from this function closes target (and conn).
+				return e
+			}
 		}
+		return nil
 
 	default:
 		return fmt.Errorf(util.ERR_TPL_SOCKS_UNSUPPORTED_CMD, c.cmd)
