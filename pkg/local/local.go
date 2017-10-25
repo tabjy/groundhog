@@ -11,7 +11,7 @@ type Config struct {
 	Host string
 	Port int
 
-	PrivateKey   rsa.PrivateKey
+	PrivateKey   *rsa.PrivateKey
 	CipherMethod byte
 }
 
@@ -19,10 +19,10 @@ type Client struct {
 	config *Config
 }
 
-func NewClient(config *Config) (*Client, error) {
+func NewClient(config *Config) *Client {
 	return &Client{
 		config,
-	}, nil
+	}
 }
 
 func (c *Client) GetConn(addr *util.Addr) (net.Conn, byte) {

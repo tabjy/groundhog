@@ -30,7 +30,6 @@ func newSocksConn(conn net.Conn, config *Config) *socksConn {
 }
 
 func handleConn(conn net.Conn, arg interface{}) error {
-	fmt.Println(arg)
 	config, ok := arg.(*Config)
 	if !ok {
 		return fmt.Errorf(util.ERR_TPL_SRV_INVALID_SETTING)
@@ -146,12 +145,17 @@ func (c *socksConn) exec() error {
 	// TODO: add support for BIND and UDPAssociate
 	switch c.cmd {
 	case util.SOCKS_CMD_CONNECT:
-		// TODO: connect proxy server
 		target, rep := c.config.Dial(c.destAddr)
 
 		if err := c.writeReply(rep, c.destAddr); err != nil {
 			return err
 		}
+
+		if rep != util.REP_SUCCEEDED {
+			return nil
+		}
+
+		defer target.Close()
 
 		errCh := make(chan error, 2)
 		go util.IOCopy(target, c.req, errCh)

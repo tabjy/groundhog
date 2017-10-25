@@ -10,13 +10,14 @@ import (
 	"fmt"
 	"crypto/sha256"
 	"bytes"
+	"crypto/rand"
 )
 
 type proxyConn struct {
 	conn       net.Conn
 	destAddr   *util.Addr
 	config     *Config
-	srvPubKey  rsa.PublicKey
+	srvPubKey  *rsa.PublicKey
 	rep        byte
 	sessionKey []byte
 }
@@ -70,10 +71,12 @@ func (c *proxyConn) connect() (net.Conn, error) {
 func (c *proxyConn) writePubKey() error {
 	// RSA key-pairs are guaranteed to be 4096 bit
 	// TODO: investigate: is encoded public key always 550 byte long
+	fmt.Println("client pub send:", &c.config.PrivateKey.PublicKey)
 	pub, err := x509.MarshalPKIXPublicKey(&c.config.PrivateKey.PublicKey)
 	if err != nil {
 		return err
 	}
+
 	if _, err := c.conn.Write(pub); err != nil {
 		return err
 	}
@@ -82,6 +85,7 @@ func (c *proxyConn) writePubKey() error {
 }
 
 func (c *proxyConn) readPubKey() error {
+	fmt.Println("reading srv pub")
 	pubBuf := make([]byte, 550)
 	_, err := io.ReadAtLeast(c.conn, pubBuf, 550)
 	if err != nil {
@@ -90,10 +94,11 @@ func (c *proxyConn) readPubKey() error {
 
 	pub, err := x509.ParsePKIXPublicKey(pubBuf)
 	if err != nil {
-		return nil
+		return err
 	}
 
-	rsaPub, ok := pub.(rsa.PublicKey)
+	rsaPub, ok := pub.(*rsa.PublicKey)
+	fmt.Println("remote pub got:", rsaPub)
 	if !ok {
 		return fmt.Errorf(util.ERR_TPL_INVALID_RSA_PUB_KEY)
 	}
@@ -112,7 +117,9 @@ func (c *proxyConn) writeReq() error {
 	}
 
 	plaintext := append(addr, c.config.CipherMethod)
-	ciphertext, err := rsa.EncryptOAEP(sha256.New(), nil, &c.srvPubKey, plaintext, nil)
+	fmt.Println("encrypt req", plaintext, len(plaintext))
+	fmt.Println("encrypt req", c.srvPubKey)
+	ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, c.srvPubKey, plaintext, nil)
 	if err != nil {
 		return err
 	}
@@ -120,6 +127,8 @@ func (c *proxyConn) writeReq() error {
 	if _, err := c.conn.Write(ciphertext); err != nil {
 		return err
 	}
+
+	fmt.Println("request sent")
 
 	return nil
 }
@@ -131,7 +140,7 @@ func (c *proxyConn) readRes() error {
 		return err
 	}
 
-	plaintext, err := rsa.DecryptOAEP(sha256.New(), nil, &c.config.PrivateKey, ciphertext, nil)
+	plaintext, err := rsa.DecryptOAEP(sha256.New(), nil, c.config.PrivateKey, ciphertext, nil)
 	if err != nil {
 		return err
 	}
