@@ -11,8 +11,8 @@ type Config struct {
 	Host string
 	Port int
 
-	PrivateKey   *rsa.PrivateKey
-	CipherMethod byte
+	PrivateKey             *rsa.PrivateKey
+	SupportedCipherMethods []byte
 }
 
 type Server struct {

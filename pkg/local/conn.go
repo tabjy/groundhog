@@ -2,7 +2,6 @@ package local
 
 import (
 	"net"
-	"gitlab.com/tabjy/groundhog/pkg/util"
 	"strconv"
 	"crypto/x509"
 	"crypto/rsa"
@@ -11,6 +10,9 @@ import (
 	"crypto/sha256"
 	"bytes"
 	"crypto/rand"
+
+	"gitlab.com/tabjy/groundhog/pkg/util"
+	"gitlab.com/tabjy/groundhog/pkg/crypto"
 )
 
 type proxyConn struct {
@@ -57,13 +59,41 @@ func (c *proxyConn) connect() (net.Conn, error) {
 
 	// errCh := make(chan error)
 
-	// TODO: cipher implementation
+	// TODO: more cipher implementation
+	var plainSide, cipherSide net.Conn
+	errCh := make(chan error)
 	switch c.config.CipherMethod {
 	case util.CIPHER_PLAINTEXT:
 		return c.conn, nil
+	case util.CIPHER_AES_128_OFB, util.CIPHER_AES_192_OFB, util.CIPHER_AES_256_OFB:
+		plainSide, cipherSide, err = crypto.CreateAESOFBPipe(c.sessionKey, errCh)
+	case util.CIPHER_AES_128_CTR, util.CIPHER_AES_192_CTR, util.CIPHER_AES_256_CTR:
+		plainSide, cipherSide, err = crypto.CreateAESCTRPipe(c.sessionKey, errCh)
+	case util.CIPHER_AES_128_CFB, util.CIPHER_AES_192_CFB, util.CIPHER_AES_256_CFB:
+		plainSide, cipherSide, err = crypto.CreateAESOFBPipe(c.sessionKey, errCh)
 	default:
 		return nil, fmt.Errorf(util.ERR_TPL_GROUNDHOG_CIPHER_NOT_SUPPORTED, c.config.CipherMethod)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	go util.IOCopy(c.conn, cipherSide, errCh)
+	go util.IOCopy(cipherSide, c.conn, errCh)
+
+	// shut down connect on error
+	// TODO: fix client-side server-side logic inconsistency
+	go func() {
+		for err := range errCh {
+			if err != nil {
+				util.GetLogger().Println(err)
+			}
+		}
+
+	}()
+
+	return plainSide, nil
 
 	return nil, nil
 }
@@ -71,7 +101,7 @@ func (c *proxyConn) connect() (net.Conn, error) {
 func (c *proxyConn) writePubKey() error {
 	// RSA key-pairs are guaranteed to be 4096 bit
 	// TODO: investigate: is encoded public key always 550 byte long
-	fmt.Println("client pub send:", &c.config.PrivateKey.PublicKey)
+	// fmt.Println("client pub send:", &c.config.PrivateKey.PublicKey)
 	pub, err := x509.MarshalPKIXPublicKey(&c.config.PrivateKey.PublicKey)
 	if err != nil {
 		return err
@@ -85,7 +115,7 @@ func (c *proxyConn) writePubKey() error {
 }
 
 func (c *proxyConn) readPubKey() error {
-	fmt.Println("reading srv pub")
+	// fmt.Println("reading srv pub")
 	pubBuf := make([]byte, 550)
 	_, err := io.ReadAtLeast(c.conn, pubBuf, 550)
 	if err != nil {
@@ -98,7 +128,7 @@ func (c *proxyConn) readPubKey() error {
 	}
 
 	rsaPub, ok := pub.(*rsa.PublicKey)
-	fmt.Println("remote pub got:", rsaPub)
+	// fmt.Println("remote pub got:", rsaPub)
 	if !ok {
 		return fmt.Errorf(util.ERR_TPL_INVALID_RSA_PUB_KEY)
 	}
@@ -117,8 +147,8 @@ func (c *proxyConn) writeReq() error {
 	}
 
 	plaintext := append(addr, c.config.CipherMethod)
-	fmt.Println("encrypt req", plaintext, len(plaintext))
-	fmt.Println("encrypt req", c.srvPubKey)
+	// fmt.Println("encrypt req", plaintext, len(plaintext))
+	// fmt.Println("encrypt req", c.srvPubKey)
 	ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, c.srvPubKey, plaintext, nil)
 	if err != nil {
 		return err
@@ -128,7 +158,7 @@ func (c *proxyConn) writeReq() error {
 		return err
 	}
 
-	fmt.Println("request sent")
+	// fmt.Println("request sent")
 
 	return nil
 }
@@ -160,11 +190,11 @@ func (c *proxyConn) readRes() error {
 	// read AES session key
 	sessionKeyLen := 0
 	switch c.config.CipherMethod {
-	case util.CIPHER_AES_128_CBF, util.CIPHER_AES_128_CTR, util.CIPHER_AES_128_OFB:
+	case util.CIPHER_AES_128_CFB, util.CIPHER_AES_128_CTR, util.CIPHER_AES_128_OFB:
 		sessionKeyLen = 16
-	case util.CIPHER_AES_192_CBF, util.CIPHER_AES_192_CTR, util.CIPHER_AES_192_OFB:
+	case util.CIPHER_AES_192_CFB, util.CIPHER_AES_192_CTR, util.CIPHER_AES_192_OFB:
 		sessionKeyLen = 24
-	case util.CIPHER_AES_256_CBF, util.CIPHER_AES_256_CTR, util.CIPHER_AES_256_OFB:
+	case util.CIPHER_AES_256_CFB, util.CIPHER_AES_256_CTR, util.CIPHER_AES_256_OFB:
 		sessionKeyLen = 32
 	case util.CIPHER_PLAINTEXT:
 		return nil

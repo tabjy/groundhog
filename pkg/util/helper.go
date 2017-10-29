@@ -7,6 +7,13 @@ import (
 	"net"
 	"io"
 	"strings"
+	"path/filepath"
+	"os/user"
+	"io/ioutil"
+	"encoding/pem"
+	"crypto/x509"
+	"crypto/rsa"
+	"os"
 )
 
 func GetAvailPort() (port int, err error) {
@@ -54,4 +61,46 @@ func ConnErrToRep(err error) byte {
 	default:
 		return REP_GENERAL_FAILURE
 	}
+}
+
+
+func GetRSAKeyPath() (string, error) {
+	usr, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(usr.HomeDir, ".groundhog", "id_rsa"), nil
+}
+
+func ReadRSAKey(path string) (*rsa.PrivateKey, error) {
+	keyBytes, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	block, _ := pem.Decode(keyBytes)
+
+	keyPair, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return keyPair, nil
+}
+
+func WriteRSAKey(path string, keyPair *rsa.PrivateKey) (error) {
+	folder := filepath.Join(path, "..")
+	os.Mkdir(folder, 0700)
+
+	pemString := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(keyPair),
+	})
+
+	if err := ioutil.WriteFile(path, pemString, 0600); err != nil {
+		return err
+	}
+
+	return nil
 }
