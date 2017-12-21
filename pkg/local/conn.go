@@ -11,8 +11,8 @@ import (
 	"bytes"
 	"crypto/rand"
 
-	"gitlab.com/tabjy/groundhog/pkg/util"
-	"gitlab.com/tabjy/groundhog/pkg/crypto"
+	"github.com/tabjy/groundhog/pkg/util"
+	"github.com/tabjy/groundhog/pkg/crypto"
 )
 
 type proxyConn struct {

@@ -5,10 +5,11 @@ package base
 
 import (
 	"fmt"
-	"gitlab.com/tabjy/groundhog/pkg/util"
 	"net"
 	"strconv"
 	"time"
+
+	"github.com/tabjy/groundhog/pkg/util"
 )
 
 type Server struct {

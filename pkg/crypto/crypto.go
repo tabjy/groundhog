@@ -11,7 +11,7 @@ import (
 	"io"
 	"crypto/rand"
 
-	"gitlab.com/tabjy/groundhog/pkg/util"
+	"github.com/tabjy/groundhog/pkg/util"
 )
 
 func CreateAESCFBPipe(key []byte, errCh chan error) (plainSide net.Conn, cipherSide net.Conn, err error) {

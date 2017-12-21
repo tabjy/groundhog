@@ -2,9 +2,10 @@ package remote
 
 import (
 	"crypto/rsa"
-	"gitlab.com/tabjy/groundhog/pkg/util"
-	"gitlab.com/tabjy/groundhog/pkg/base"
 	"net"
+
+	"github.com/tabjy/groundhog/pkg/util"
+	"github.com/tabjy/groundhog/pkg/base"
 )
 
 type Config struct {

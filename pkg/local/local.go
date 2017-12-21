@@ -4,7 +4,7 @@ import (
 	"crypto/rsa"
 	"net"
 
-	"gitlab.com/tabjy/groundhog/pkg/util"
+	"github.com/tabjy/groundhog/pkg/util"
 )
 
 type Config struct {
