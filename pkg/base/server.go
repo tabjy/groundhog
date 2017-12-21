@@ -112,6 +112,7 @@ func (s *Server) acceptConn() error {
 		if err != nil {
 			util.GetLogger().Println(err)
 		}
+		conn.Close()
 	}()
 
 	// continue to next connection

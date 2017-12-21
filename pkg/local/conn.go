@@ -87,7 +87,9 @@ func (c *proxyConn) connect() (net.Conn, error) {
 	go func() {
 		for err := range errCh {
 			if err != nil {
+				c.conn.Close()
 				util.GetLogger().Println(err)
+				return
 			}
 		}
 
