@@ -4,8 +4,8 @@ import (
 	"net"
 	"fmt"
 
-	"gitlab.com/tabjy/groundhog/pkg/base"
-	"gitlab.com/tabjy/groundhog/pkg/util"
+	"github.com/tabjy/groundhog/pkg/base"
+	"github.com/tabjy/groundhog/pkg/util"
 )
 
 type Config struct {

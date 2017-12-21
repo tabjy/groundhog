@@ -2,7 +2,6 @@ package remote
 
 import (
 	"net"
-	"gitlab.com/tabjy/groundhog/pkg/util"
 	"io"
 	"crypto/x509"
 	"crypto/rsa"
@@ -10,7 +9,9 @@ import (
 	"crypto/sha256"
 	"bytes"
 	"crypto/rand"
-	"gitlab.com/tabjy/groundhog/pkg/crypto"
+
+	"github.com/tabjy/groundhog/pkg/util"
+	"github.com/tabjy/groundhog/pkg/crypto"
 )
 
 type proxyConn struct {

@@ -7,11 +7,12 @@ import (
 	"os"
 	"crypto/rsa"
 	"crypto/rand"
-	"gitlab.com/tabjy/groundhog/pkg/util"
-	"gitlab.com/tabjy/groundhog/pkg/remote"
 	"strings"
-	"gitlab.com/tabjy/groundhog/pkg/local"
-	"gitlab.com/tabjy/groundhog/pkg/socks5"
+
+	"github.com/tabjy/groundhog/pkg/util"
+	"github.com/tabjy/groundhog/pkg/remote"
+	"github.com/tabjy/groundhog/pkg/local"
+	"github.com/tabjy/groundhog/pkg/socks5"
 )
 
 var (
