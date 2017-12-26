@@ -1,6 +1,6 @@
-// Package common provides a few generalized interface/struct utilities might
-// be handy for other packages. The goal is to reduce code redundancy.
-package common
+// Package tcp implements a basic TCP server.
+// Such a TCP server supports graceful shutdown and context.
+package tcp
 
 import (
 	"context"
@@ -11,18 +11,20 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/tabjy/groundhog/common/adt"
 	"github.com/tabjy/yagl"
+
 )
 
-// ErrServerClosed is returned by the TCPServer's Serve, and ListenAndServe,
+// ErrServerClosed is returned by the Server's Serve, and ListenAndServe,
 // methods after a call to Shutdown or Close.
-var ErrServerClosed = errors.New("common: TCPServer closed")
+var ErrServerClosed = errors.New("common: Server closed")
 
-// ErrServerNotListening is returned by TCPServer's Serve, and ListenAndServe,
+// ErrServerNotListening is returned by Server's Serve, and ListenAndServe,
 // methods if being called before calling Listen.
-var ErrServerNotListening = errors.New("common: TCPServer not listening")
+var ErrServerNotListening = errors.New("common: Server not listening")
 
-type TCPHandler interface {
+type Handler interface {
 	ServeTCP(ctx context.Context, conn net.Conn)
 }
 
@@ -30,7 +32,7 @@ type echoHandler struct{}
 
 func (h *echoHandler) ServeTCP(ctx context.Context, conn net.Conn) {
 	go func() {
-		<-ctx.Done() // this doesn't block forever, TCPServer call cancel after ServeTCP returns
+		<-ctx.Done() // this doesn't block forever, Server call cancel after ServeTCP returns
 		// conn.Close() // could fail with error, but it's okay
 		yagl.Trace("echoHandler goroutine unblocks and exists")
 	}()
@@ -45,27 +47,27 @@ func (h *echoHandler) ServeTCP(ctx context.Context, conn net.Conn) {
 
 var EchoHandler = &echoHandler{}
 
-// A TCPServer defines parameters for running a TCP server. The zero value for
-// TCPServer is a valid configuration.
-type TCPServer struct {
+// A Server defines parameters for running a TCP server. The zero value for
+// Server is a valid configuration.
+type Server struct {
 	Host string // IP address or hostname to listen on. Leave empty for an unspecified address.
 	Port uint16 // Port to listen on. A port number is automatically chosen if left empty or 0.
 
-	Handler TCPHandler
+	Handler Handler
 
 	// ErrorLog specifies an optional logger
 	// If nil, logging goes to os.Stderr via a yagl standard logger
 	Logger yagl.Logger
 
 	ln    net.Listener
-	conns Set
+	conns adt.Set
 
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
-func (srv *TCPServer) logger() yagl.Logger {
+func (srv *Server) logger() yagl.Logger {
 	if srv.Logger == nil {
 		return yagl.StdLogger()
 	}
@@ -74,7 +76,7 @@ func (srv *TCPServer) logger() yagl.Logger {
 
 // Listen listens on srv.Host:srv.Port. If a Listener is ready created, the old
 // one will be closed and replaced.
-func (srv *TCPServer) Listen() error {
+func (srv *Server) Listen() error {
 	addr := net.JoinHostPort(srv.Host, strconv.Itoa(int(srv.Port)))
 
 	ln, err := net.Listen("tcp", addr)
@@ -83,7 +85,7 @@ func (srv *TCPServer) Listen() error {
 		return err
 	}
 	srv.ln = ln
-	srv.logger().Infof("TCPServer listening on %v", srv.ln.Addr())
+	srv.logger().Infof("Server listening on %v", srv.ln.Addr())
 
 	return nil
 }
@@ -95,12 +97,12 @@ func (srv *TCPServer) Listen() error {
 //
 // Serve always returns a non-nil error. After Shutdown or Close, the returned
 // error is ErrServerClosed.
-func (srv *TCPServer) Serve() error {
+func (srv *Server) Serve() error {
 	if srv.ln == nil {
 		return ErrServerNotListening
 	}
 
-	srv.conns = NewHashSet()
+	srv.conns = adt.NewHashSet()
 
 	if srv.Handler == nil {
 		srv.Handler = EchoHandler
@@ -117,7 +119,7 @@ func (srv *TCPServer) Serve() error {
 
 				return ErrServerClosed
 			}
-			srv.logger().Errorf("TCPServer stopping for error: %v", err)
+			srv.logger().Errorf("Server stopping for error: %v", err)
 			return err
 		}
 
@@ -160,7 +162,7 @@ func (srv *TCPServer) Serve() error {
 //
 // ListenAndServe always returns a non-nil error. After Shutdown or Close, the
 // returned error is ErrServerClosed.
-func (srv *TCPServer) ListenAndServe() error {
+func (srv *Server) ListenAndServe() error {
 	if err := srv.Listen(); err != nil {
 		return err
 	}
@@ -168,10 +170,10 @@ func (srv *TCPServer) ListenAndServe() error {
 	return srv.Serve()
 }
 
-func (srv *TCPServer) forceCloseConns() {
+func (srv *Server) forceCloseConns() {
 	srv.logger().Tracef("forcing to close all connections, %d remaining", srv.conns.Len())
 	srv.conns.ForEach(func(element interface{}) {
-		conn, _ := element.(net.Conn)
+		conn := element.(net.Conn)
 		srv.logger().Tracef("forcing to close %v", conn.RemoteAddr())
 		if err := conn.Close(); err != nil {
 			// connection level errors, no need to deal with them, just log
@@ -188,7 +190,7 @@ func (srv *TCPServer) forceCloseConns() {
 //
 // Close returns any error returned from closing the Server's underlying
 // Listener(s).
-func (srv *TCPServer) Close() error {
+func (srv *Server) Close() error {
 	srv.logger().Infof("closing server listening on %v", srv.ln.Addr())
 
 	// first close listener, so no more incoming connections
@@ -213,7 +215,7 @@ func (srv *TCPServer) Close() error {
 //
 // Shutdown returns any error returned from closing the Server's underlying
 // Listener(s).
-func (srv *TCPServer) Shutdown() error {
+func (srv *Server) Shutdown() error {
 	srv.logger().Infof("shutting down server listening on %v", srv.ln.Addr())
 
 	// first close listener, so no more incoming connections

@@ -1,4 +1,6 @@
-package common
+// Package adt provides some Abstract Data Type interfaces and implementations.
+// If not specified otherwise, all implementations are thread-safe.
+package adt
 
 import "sync"
 
