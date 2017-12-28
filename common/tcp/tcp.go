@@ -33,7 +33,7 @@ type echoHandler struct{}
 func (h *echoHandler) ServeTCP(ctx context.Context, conn net.Conn) {
 	go func() {
 		<-ctx.Done() // this doesn't block forever, Server call cancel after ServeTCP returns
-		// conn.Close() // could fail with error, but it's okay
+		conn.Close() // could fail with error, but it's okay
 		yagl.Trace("echoHandler goroutine unblocks and exists")
 	}()
 	if _, err := io.Copy(conn, conn); err != nil {
@@ -55,8 +55,8 @@ type Server struct {
 
 	Handler Handler
 
-	// ErrorLog specifies an optional logger
-	// If nil, logging goes to os.Stderr via a yagl standard logger
+	// Logger specifies an optional logger.
+	// If nil, logging goes to os.Stderr via a yagl standard logger.
 	Logger yagl.Logger
 
 	ln    net.Listener

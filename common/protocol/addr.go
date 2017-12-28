@@ -1,6 +1,4 @@
-// Package socks5 provides common components used in SOCKS5 implementations.
-// However, these components can also be used for non-SOCKS5 protocols.
-package socks5
+package protocol
 
 import (
 	"net"
@@ -44,35 +42,35 @@ func NewAddrFromBuffer(buf []byte) (*Addr, error) {
 
 // NewAddrFromBuffer consume a reader containing bytes in a SOCKS5
 // address-port schema specified in RFC1928, and returns a Addr struct.
-func NewAddrFromReader(reader io.Reader) (*Addr, error) {
+func NewAddrFromReader(rd io.Reader) (*Addr, error) {
 	addr := &Addr{}
 
 	atyp := []byte{0}
 
-	if _, err := reader.Read(atyp); err != nil {
+	if _, err := rd.Read(atyp); err != nil {
 		return nil, err
 	}
 
 	switch atyp[0] {
 	case 0x01: // IPv4
 		ip := make([]byte, 4)
-		if _, err := io.ReadAtLeast(reader, ip, 4); err != nil {
+		if _, err := io.ReadAtLeast(rd, ip, 4); err != nil {
 			return nil, err
 		}
 		addr.IP = ip
 	case 0x04: // IPv6
 		ip := make([]byte, 16)
-		if _, err := io.ReadAtLeast(reader, ip, 16); err != nil {
+		if _, err := io.ReadAtLeast(rd, ip, 16); err != nil {
 			return nil, err
 		}
 		addr.IP = ip
 	case 0x03:
-		len := []byte{0}
-		if _, err := reader.Read(len); err != nil {
+		domainLen := []byte{0}
+		if _, err := rd.Read(domainLen); err != nil {
 			return nil, err
 		}
-		domain := make([]byte, int(len[0]))
-		if _, err := io.ReadAtLeast(reader, domain, int(len[0])); err != nil {
+		domain := make([]byte, int(domainLen[0]))
+		if _, err := io.ReadAtLeast(rd, domain, int(domainLen[0])); err != nil {
 			return nil, err
 		}
 		addr.Domain = string(domain)
@@ -89,11 +87,11 @@ func NewAddrFromReader(reader io.Reader) (*Addr, error) {
 	}
 
 	port := []byte{0, 0}
-	if _, err := io.ReadAtLeast(reader, port, 2); err != nil {
+	if _, err := io.ReadAtLeast(rd, port, 2); err != nil {
 		return nil, err
 	}
 
-	addr.Port = uint16(port[0]<<8 | port[1])
+	addr.Port = (uint16(port[0]) << 8) | uint16(port[1])
 
 	return addr, nil
 }
