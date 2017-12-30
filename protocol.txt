@@ -1,0 +1,40 @@
+Groundhog Protocol Version 1
+
+Note
+    This memo describes specifications of Groundhog Protocol Version 1. Since
+    such protocol cannot be considered mature at this time. Protocol
+    specification may change without updating version number. That is, there may
+    be multiple Groundhog Protocol Version 1 standards, but only the latest one
+    should be followed.
+
+1. Introduction
+    Despite the Internet has connect almost everywhere on Earth, in many cases,
+    network traffics are monitored or control by firewalls for various reasons,
+    including, but not limited to, computing system security and censorship.
+    Groundhog is a transparent protocol exists to solve this issue. By using
+    this protocol, network traffics are encrypted and rerouted before reaching
+    target host, without modifying any underlying protocol, such as HTTP, SMTP,
+    and FTP. Although all traffic still go through firewalls, firewalls are
+    unaware of content and destination of traffics.
+
+2. Weakness
+    As for the least version 1 protocol, there are 2 major weaknesses/flaws.
+
+    i. Groundhog traffic has a particularly identifiable characteristic. The
+    first 550 bytes of a TCP connection is always a 4096-bit PublicKey in PKIX
+    format. Although contents are still secured, a firewall can easily identify
+    Groundhog and reset the corresponding connection. In future versions, this
+    might be solved with a server-wide PSK obfuscation. The goal is making
+    connection implementing Groundhog protocol indistinguishable from random
+    byte stream.
+
+    ii. Each Groundhog connect has a significantly large overhead, and 3 RTT is
+    required before actual data transmission can begin. Before data transmission
+    can begin, server and client must exchange 4096 bit RSA public key (550
+    bytes for PKIX formatted public key), taking 1 RTT. In addition, a further
+    512 bytes is used for request, 512 bytes for response. Actual data
+    transmission begin on the 3rd RTT (after 16 bytes of IV received). This
+    issue can be solved by using a server-assigned token and AES key after the
+    first connection established, but which is against the goal of making
+    Groundhog protocol indistinguishable from random-byte stream.
+

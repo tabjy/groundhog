@@ -3,7 +3,6 @@ package socks5
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -12,16 +11,9 @@ import (
 	"github.com/tabjy/groundhog/common/protocol"
 	"github.com/tabjy/groundhog/common/tcp"
 	"github.com/tabjy/groundhog/common/util"
+	"github.com/tabjy/groundhog/common"
 	"github.com/tabjy/yagl"
 )
-
-// Dialer interface contains two function being used by a SOCKS5 server. It
-// determine how a SOCKS5 server create connection to target server. In most
-// cases, a zero-value net.Dialer is sufficient enough.
-type Dialer interface {
-	Dial(network, address string) (net.Conn, error)
-	DialContext(ctx context.Context, network, address string) (net.Conn, error)
-}
 
 // Config defines optional configurations for a SOCKS5 server. The zero value
 // for Config is a valid configuration.
@@ -29,7 +21,7 @@ type Config struct {
 	Host string // IP address or hostname to listen on. Leave empty for an unspecified address.
 	Port uint16 // Port to listen on. A port number is automatically chosen if left empty or 0.
 
-	Dialer Dialer // Dialer implementation. If nil, net.Dialer would be used.
+	Dialer common.Dialer // Dialer implementation. If nil, net.Dialer would be used.
 
 	// Logger specifies an optional logger
 	// If nil, logging goes to os.Stderr via a yagl standard logger.
@@ -47,7 +39,7 @@ func NewServer(config *Config) *tcp.Server {
 		logger = yagl.StdLogger()
 	}
 
-	var dialer Dialer
+	var dialer common.Dialer
 	if config.Dialer != nil {
 		dialer = config.Dialer
 	} else {
@@ -66,7 +58,7 @@ func NewServer(config *Config) *tcp.Server {
 }
 
 type handler struct {
-	dialer Dialer
+	dialer common.Dialer
 	logger yagl.Logger
 }
 
@@ -79,12 +71,14 @@ func (h *handler) ServeTCP(ctx context.Context, conn net.Conn) {
 }
 
 type socks struct {
-	dialer Dialer
+	dialer common.Dialer
 	logger yagl.Logger
 
-	conn net.Conn
-	req  io.Reader
-	res  io.Writer
+	client net.Conn
+	target net.Conn
+
+	req io.Reader
+	res io.Writer
 
 	dst   *protocol.Addr
 	src   *protocol.Addr
@@ -94,14 +88,22 @@ type socks struct {
 func (s *socks) init(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
-	// conn.(*net.TCPConn).SetKeepAlive(true)
-
+	// watchdog to close connections if context cancelled
 	go func() {
 		<-ctx.Done() // this doesn't block forever, Server call cancel after ServeTCP returns
-		conn.Close() // could fail with error, but it's okay
+
+		if s.client != nil {
+			s.client.Close()
+		}
+
+		if s.target != nil {
+			s.target.Close()
+		}
 	}()
 
-	s.conn = conn
+	conn.(*net.TCPConn).SetKeepAlive(true)
+
+	s.client = conn
 	s.req = bufio.NewReader(conn)
 	s.res = conn
 	s.local = &protocol.Addr{
@@ -143,13 +145,13 @@ func (s *socks) init(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	s.logger.Tracef("request from %s to %s", s.conn.RemoteAddr(), s.dst.String())
+	s.logger.Tracef("request from %s to %s", s.client.RemoteAddr(), s.dst.String())
 
 	// only CONNECT command is supported for this moment
-	target, dialErr := s.dialer.DialContext(ctx, "tcp", s.dst.String())
+	var dialErr error
+	s.target, dialErr = s.dialer.DialContext(ctx, "tcp", s.dst.String())
 
-	rep := protocol.ErrToRep(dialErr)
-	if err := s.reply(rep, s.local); err != nil {
+	if err := s.reply(dialErr, s.local); err != nil {
 		s.logger.Error(err)
 		return
 	}
@@ -158,10 +160,11 @@ func (s *socks) init(ctx context.Context, conn net.Conn) {
 		s.logger.Errorf("failed to dial target server: %v", dialErr.Error())
 		return
 	}
-	defer target.Close()
+	defer s.target.Close()
 
-	s.logger.Tracef("target connected, %s, REP: %d", target.RemoteAddr(), rep)
+	s.logger.Tracef("target connected, %s", s.target.RemoteAddr())
 
+	/* it turns out this logic is unnecessary, no error with or without this, but why...
 	// XXX: stop using bufio from here, but some bytes are already buffered
 	bufReq := s.req.(*bufio.Reader)  // s.req must be *bufio.Reader
 	bufLen := bufReq.Buffered()      // get number of bytes buffered
@@ -175,12 +178,13 @@ func (s *socks) init(ctx context.Context, conn net.Conn) {
 	}
 
 	// send buffered bytes to target server
-	if _, err := io.Copy(target, bytes.NewBuffer(buffered)); err != nil {
+	if _, err := io.Copy(s.target, bytes.NewBuffer(buffered)); err != nil {
 		s.logger.Error(err)
 		return
 	}
+	*/
 
-	if _, _, err := util.Proxy(target, conn); err != nil {
+	if _, _, err := util.Proxy(s.target, s.client); err != nil {
 		s.logger.Error(err)
 		return
 	}
@@ -215,8 +219,8 @@ func (s *socks) auth() error {
 
 	// supports NO AUTHENTICATION REQUIRED only
 	for method := range methods {
-		if method == 0x00 {
-			s.res.Write([]byte{0x05, 0x00}) // 0x00 for NO AUTHENTICATION REQUIRED
+		if method == 0x00 { // 0x00 for NO AUTHENTICATION REQUIRED
+			s.res.Write([]byte{0x05, 0x00})
 			return nil
 		}
 	}
@@ -259,10 +263,16 @@ func (s *socks) readDstAddr() error {
 
 	s.dst = addr
 	return nil
-
 }
 
-func (s *socks) reply(rep byte, addr *protocol.Addr) error {
+func (s *socks) reply(err error, addr *protocol.Addr) error {
+	rep := protocol.ErrToRep(err)
+
+	if rep > 0x08 {
+		// this shouldn't happen anyway, but let's be sure
+		rep = protocol.RepGeneralFailure
+	}
+
 	addrBytes, err := addr.Marshal()
 	if err != nil {
 		return err

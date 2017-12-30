@@ -128,6 +128,7 @@ func (srv *Server) Serve() error {
 			defer func() {
 				srv.wg.Add(-1)
 				srv.conns.Remove(conn)
+				srv.logger().Tracef("%d connections still active", srv.conns.Len())
 			}()
 			srv.conns.Add(conn)
 			srv.logger().Tracef("new connection from %v", conn.RemoteAddr())
@@ -148,8 +149,6 @@ func (srv *Server) Serve() error {
 				srv.logger().Warnf("connection from %v is already closed", conn.RemoteAddr())
 			}
 			srv.logger().Tracef("connection from %v is now closed", conn.RemoteAddr())
-
-
 		}()
 	}
 

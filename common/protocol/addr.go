@@ -52,19 +52,19 @@ func NewAddrFromReader(rd io.Reader) (*Addr, error) {
 	}
 
 	switch atyp[0] {
-	case 0x01: // IPv4
+	case AtypIPv4:
 		ip := make([]byte, 4)
 		if _, err := io.ReadAtLeast(rd, ip, 4); err != nil {
 			return nil, err
 		}
 		addr.IP = ip
-	case 0x04: // IPv6
+	case AtypIPv6:
 		ip := make([]byte, 16)
 		if _, err := io.ReadAtLeast(rd, ip, 16); err != nil {
 			return nil, err
 		}
 		addr.IP = ip
-	case 0x03:
+	case AtypDomain:
 		domainLen := []byte{0}
 		if _, err := rd.Read(domainLen); err != nil {
 			return nil, err
@@ -103,14 +103,14 @@ func (addr Addr) Marshal() ([]byte, error) {
 	if addr.IP != nil {
 		// prefer IP over FQDN
 		if len(addr.IP) == 4 {
-			builder.WriteByte(0x01) // IPv4
+			builder.WriteByte(AtypIPv4)
 			builder.Write(addr.IP.To4())
 		} else {
-			builder.WriteByte(0x04) // IPv6
+			builder.WriteByte(AtypIPv6)
 			builder.Write(addr.IP.To16())
 		}
 	} else if addr.Domain != "" {
-		builder.WriteByte(0x03) // FQDN
+		builder.WriteByte(AtypDomain)
 		builder.WriteByte(byte(len(addr.Domain)))
 		builder.WriteString(addr.Domain)
 	} else {
