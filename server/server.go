@@ -232,17 +232,17 @@ func (g *gndhog) init(ctx context.Context, conn net.Conn) {
 	if g.clientCipher != protocol.CipherPlaintext {
 		encryptIV := make([]byte, aes.BlockSize)
 		if _, err := io.ReadFull(rand.Reader, encryptIV); err != nil {
-			g.logger.Error(err)
+			g.logger.Errorf("failed to generate encryption IV: %s", err)
 			return
 		}
 		if _, err := g.res.Write(encryptIV); err != nil {
-			g.logger.Error(err)
+			g.logger.Errorf("failed to write encryption IV: %s", err)
 			return
 		}
 
 		decryptIV := make([]byte, aes.BlockSize)
 		if _, err := io.ReadAtLeast(g.req, decryptIV, aes.BlockSize); err != nil {
-			g.logger.Error(err)
+			g.logger.Errorf("failed to read decryption IV: %s", err)
 			return
 		}
 
@@ -252,13 +252,13 @@ func (g *gndhog) init(ctx context.Context, conn net.Conn) {
 		var err error
 		cipherTarget, err = ed.Ciphertext(g.target)
 		if err != nil {
-			g.logger.Error(err)
+			g.logger.Errorf("failed to create cipher for target connection: %s", err)
 			return
 		}
 	}
 
 	if _, _, err := util.Proxy(cipherTarget, g.client); err != nil {
-		g.logger.Error(err)
+		g.logger.Errorf("failed to proxy connections: %s", err)
 		return
 	}
 

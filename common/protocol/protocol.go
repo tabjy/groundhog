@@ -3,7 +3,10 @@
 // SOCKS5/Groundhog protocols.
 package protocol
 
-import "strings"
+import (
+	"strings"
+	"errors"
+)
 
 // Address type indication byte used for SOCKS5 and Groundhog protocol
 const (
@@ -48,12 +51,12 @@ const (
 //		0x00 succeeded
 // 		0x01 general server failure
 //		0x02 connection not allowed by ruleset
-//	 	0x03 Network unreachable
-// 		0x04 Host unreachable
-// 		0x05 Connection refused
+//	 	0x03 network unreachable
+// 		0x04 host unreachable
+// 		0x05 connection refused
 // 		0x06 TTL expired
-// 		0x07 Command not supported
-// 		0x08 Address type not supported
+// 		0x07 command not supported
+// 		0x08 address type not supported
 // 		0x09 to 0xFF for additional groundhog reply code
 func ErrToRep(err error) byte {
 	if err == nil {
@@ -61,14 +64,55 @@ func ErrToRep(err error) byte {
 	}
 
 	msg := err.Error()
+	// TODO: don't hard code these values
 	switch {
-	case strings.Contains(msg, "no such host"):
+	case strings.Contains(msg, "general server failure"):
+		return RepGeneralFailure
+	case strings.Contains(msg, "connection not allowed by ruleset"):
+		return RepNotAllowByRuleset
+	case strings.Contains(msg, "network unreachable"):
+		return RepNetworkUnreachable
+	case strings.Contains(msg, "no such host"), strings.Contains(msg, "host unreachable"):
 		return RepNetworkUnreachable
 	case strings.Contains(msg, "connection refused"):
 		return RepConnectionRefused
-	case strings.Contains(msg, "connection timed out"):
+	case strings.Contains(msg, "connection timed out"), strings.Contains(msg, "TTL expired"):
 		return RepTTLExpired
+	case strings.Contains(msg, "command not supported"):
+		return RepCommandNotSupported
+	case strings.Contains(msg, "address type not supported"):
+		return RepAddressTypeNotSupported
+	case strings.Contains(msg, "cipher not supported"):
+		return RepCipherNotSupported
 	default:
 		return RepGeneralFailure
+	}
+}
+
+func RepToErr(rep byte) error {
+	// TODO: don't hard code these values
+	switch rep {
+	case RepSucceeded:
+		return nil
+	case RepGeneralFailure:
+		return errors.New("general server failure")
+	case RepNotAllowByRuleset:
+		return errors.New("connection not allowed by ruleset")
+	case RepNetworkUnreachable:
+		return errors.New("network unreachable")
+	case RepHostUnreachable:
+		return errors.New("host unreachable")
+	case RepConnectionRefused:
+		return errors.New("connection refused")
+	case RepTTLExpired:
+		return errors.New("TTL expired")
+	case RepCommandNotSupported:
+		return errors.New("command not supported")
+	case RepAddressTypeNotSupported:
+		return errors.New("address type not supported")
+	case RepCipherNotSupported:
+		return errors.New("cipher not supported")
+	default:
+		return errors.New("invalid reply code")
 	}
 }

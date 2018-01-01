@@ -13,6 +13,7 @@ import (
 	"github.com/tabjy/groundhog/common/util"
 	"github.com/tabjy/groundhog/common"
 	"github.com/tabjy/yagl"
+	"errors"
 )
 
 // Config defines optional configurations for a SOCKS5 server. The zero value
@@ -200,7 +201,7 @@ func (s *socks) assertSOCKSVer() error {
 
 	// supports SOCKS5 only
 	if ver[0] != byte(0x05) {
-		return newSOCKSError("unsupported SOCKS version: %#x", ver[0])
+		return fmt.Errorf("unsupported SOCKS version: %#x", ver[0])
 	}
 
 	return nil
@@ -225,7 +226,7 @@ func (s *socks) auth() error {
 		}
 	}
 
-	return newSOCKSError("no supported SOCKS authentication method")
+	return errors.New("no supported SOCKS authentication method")
 }
 
 func (s *socks) assertCmd() error {
@@ -235,7 +236,7 @@ func (s *socks) assertCmd() error {
 	}
 
 	if cmd[0] != byte(0x01) {
-		return newSOCKSError("unsupported SOCKS command: %#x", cmd[0])
+		return fmt.Errorf("unsupported SOCKS command: %#x", cmd[0])
 	}
 
 	return nil
@@ -249,7 +250,7 @@ func (s *socks) assertRsvByte() error {
 	}
 
 	if rsv[0] != byte(0x00) {
-		return newSOCKSError("illegal SOCKS reserved field: %#x (must be 0x00)", rsv[0])
+		return fmt.Errorf("illegal SOCKS reserved field: %#x (must be 0x00)", rsv[0])
 	}
 
 	return nil
@@ -289,18 +290,4 @@ func (s *socks) reply(err error, addr *protocol.Addr) error {
 	}
 
 	return nil
-}
-
-type SOCKSError struct {
-	format string
-	v      []interface{}
-}
-
-// Error implements Error function of error interface.
-func (err *SOCKSError) Error() string {
-	return fmt.Sprintf(err.format, err.v...)
-}
-
-func newSOCKSError(format string, v ... interface{}) error {
-	return &SOCKSError{format: format, v: v}
 }

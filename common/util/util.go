@@ -6,13 +6,6 @@ import (
 	"sync"
 )
 
-type closerWrite interface {
-	CloseWrite() error
-}
-type closerRead interface {
-	CloseRead() error
-}
-
 // Proxy connect two ReadWriter, forward data between them in a full-duplex
 // manner. Proxy returns upon either EOF is reached on both ReadWriter or an
 // error occurs.

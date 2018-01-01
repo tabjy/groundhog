@@ -100,3 +100,39 @@ func (ed *StreamEncryptDecrypter) Ciphertext(plaintext io.ReadWriter) (io.ReadWr
 
 	return ciphertext, nil
 }
+
+// Plaintext takes a duplex io.ReadWriter with ciphertext, decrypt and return a
+// corresponding plaintext io.ReadWriter. Any plaintext write to returned
+// io.ReadWriter will be encrypted and write to ciphertext. Any ciphertext read
+// from ciphertext will be decrypted and write to returned io.ReadWriter.
+func (ed *StreamEncryptDecrypter) Plaintext(ciphertext io.ReadWriter) (io.ReadWriter, error) {
+	if err := ed.initCipherStream(); err != nil {
+		return nil, err
+	}
+
+	plainRdIn, plainWtOut := io.Pipe()
+	plainRdOut, plainWtIn := io.Pipe()
+
+	plaintext := &readWriter{
+		plainRdOut,
+		plainWtOut,
+	}
+
+	// encrypt plaintext to ciphertext
+	go func() {
+		encrypter := &cipher.StreamWriter{S: ed.EncryptStream, W: ciphertext}
+		io.Copy(encrypter, plainRdIn)
+		plainWtIn.Close()
+		plainRdOut.Close()
+	}()
+
+	// decrypt ciphertext to plaintext
+	go func() {
+		decrypter := &cipher.StreamReader{S: ed.DecryptStream, R: ciphertext}
+		io.Copy(plainWtIn, decrypter)
+		plainWtOut.Close()
+		plainRdIn.Close()
+	}()
+
+	return plaintext, nil
+}

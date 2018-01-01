@@ -3,6 +3,7 @@ package protocol
 import (
 	"net"
 	"bytes"
+	"errors"
 	"io"
 	"fmt"
 	"strconv"
@@ -83,7 +84,7 @@ func NewAddrFromReader(rd io.Reader) (*Addr, error) {
 		}
 
 	default:
-		return nil, newAddrError("unsupported address type %#xs", atyp[0])
+		return nil, fmt.Errorf("unsupported address type %#xs", atyp[0])
 	}
 
 	port := []byte{0, 0}
@@ -94,6 +95,31 @@ func NewAddrFromReader(rd io.Reader) (*Addr, error) {
 	addr.Port = (uint16(port[0]) << 8) | uint16(port[1])
 
 	return addr, nil
+}
+
+// NewAddrFromString read a string of a network address of the form "host:port",
+// and returns a Addr struct.
+func NewAddrFromString(s string) (*Addr, error) {
+	hostStr, portStr, err := net.SplitHostPort(s)
+	if err != nil {
+		return nil, err
+	}
+
+	addr := &Addr{}
+
+	if ip := net.ParseIP(hostStr); ip != nil {
+		addr.IP = ip
+	} else {
+		addr.Domain = hostStr
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return nil, err
+	}
+
+	addr.Port = uint16(port)
+	return addr, err
 }
 
 // Marshal encode a Addr struct into byte array suitable for SOCKS5 protocol.
@@ -114,7 +140,7 @@ func (addr Addr) Marshal() ([]byte, error) {
 		builder.WriteByte(byte(len(addr.Domain)))
 		builder.WriteString(addr.Domain)
 	} else {
-		return nil, newAddrError("no IP or domain specified")
+		return nil, errors.New("no IP or domain specified")
 	}
 
 	builder.WriteByte(byte(addr.Port >> 8))
@@ -131,25 +157,6 @@ func (addr Addr) String() string {
 	} else if addr.Domain != "" {
 		return net.JoinHostPort(addr.Domain, strconv.Itoa(int(addr.Port)))
 	} else {
-		return newAddrError("no IP or domain specified").Error()
+		return "no IP or domain specified"
 	}
-}
-
-// AddrError implements error interface. Such struct is exported for error type
-// assertion, something like:
-// 		socksAddrError, isAddrError := err.(AddrError)
-//
-// Other packages should not create or manipulate a AddrError anyhow.
-type AddrError struct {
-	format string
-	v      []interface{}
-}
-
-// Error implements Error function of error interface.
-func (err *AddrError) Error() string {
-	return fmt.Sprintf(err.format, err.v...)
-}
-
-func newAddrError(format string, v ... interface{}) error {
-	return &AddrError{format: format, v: v}
 }
