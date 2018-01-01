@@ -1,18 +1,25 @@
-// TestFlag project main.go
 package main
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
-	"crypto/rsa"
-	"crypto/rand"
+	"os/signal"
+	"os/user"
+	"path/filepath"
 	"strings"
+	"syscall"
 
-	"github.com/tabjy/groundhog/pkg/util"
-	"github.com/tabjy/groundhog/pkg/remote"
-	"github.com/tabjy/groundhog/pkg/local"
-	"github.com/tabjy/groundhog/pkg/socks5"
+	"github.com/tabjy/groundhog/client"
+	"github.com/tabjy/groundhog/common/protocol"
+	"github.com/tabjy/groundhog/server"
+	"github.com/tabjy/groundhog/socks5"
+	"github.com/tabjy/yagl"
 )
 
 var (
@@ -23,10 +30,13 @@ var (
 	host string
 	port int
 
-	cipher string
+	ciphers string
 
 	socks5Host string
 	socks5Port int
+
+	logger   yagl.Logger
+	logLevel string
 )
 
 func init() {
@@ -34,172 +44,276 @@ func init() {
 	flag.BoolVar(&isClientMode, "client", false, "run in client mode")
 	flag.BoolVar(&isKeyGenMode, "key-gen", false, "generate RSA key pair")
 
-	flag.StringVar(&host, "host", "", "server/client hostname")
+	flag.StringVar(&host, "host", "localhost", "server/client hostname")
 	flag.IntVar(&port, "port", 1081, "server/client port")
 
-	flag.StringVar(&cipher, "cipher", "", `client: cipher name, server: acceptable cipher names, separated by ","`)
+	flag.StringVar(&ciphers, "cipher", "", `client: cipher name, server: acceptable cipher names, separated by ","`)
 
-	flag.StringVar(&socks5Host, "socks5-host", "127.0.0.1", "hostname for local SOCKS5 server")
+	flag.StringVar(&socks5Host, "socks5-host", "localhost", "hostname for local SOCKS5 server")
 	flag.IntVar(&socks5Port, "socks5-port", 1080, "port for local SOCKS5 server")
+
+	flag.StringVar(&logLevel, "log-level", "info", "logging level")
 }
 
 func main() {
 	flag.Parse()
 
+	initLogger()
+
 	switch {
 	case isServerMode:
-		startServerMode()
+		serverMode()
 	case isClientMode:
-		startClientMode()
+		clientMode()
 	case isKeyGenMode:
-		startKeyGenMode()
+		keyGenMode()
 	default:
-		fmt.Println("no working mode sepcified")
-		os.Exit(1)
+		logger.Fatal("no working mode specified")
 	}
 }
 
-func startServerMode() {
-	keyPath, err := util.GetRSAKeyPath()
-	assert(err)
+func initLogger() {
+	var level int
 
-	keyPair, err := util.ReadRSAKey(keyPath)
-	assert(err)
+	switch logLevel {
+	case "trace":
+		level = yagl.LvlTrace
+	case "debug":
+		level = yagl.LvlDebug
+	case "info":
+		level = yagl.LvlInfo
+	case "warn":
+		level = yagl.LvlWarn
+	case "error":
+		level = yagl.LvlError
+	case "panic":
+		level = yagl.LvlPanic
+	case "fatal":
+		level = yagl.LvlFatal
+	default:
+		fmt.Fprintf(os.Stderr, "unrecognized logging level: %s\n", level)
+		os.Exit(1)
+	}
 
-	config, err := remote.GenerateDefaultConfig()
-	assert(err)
+	logger = yagl.New(
+		yagl.FlgDate|yagl.FlgTime|yagl.FlgShortFile,
+		level,
+		os.Stderr,
+	)
+}
 
-	config.Port = port
+func serverMode() {
+	keyPath, err := getRSAKeyPath()
+	if err != nil {
+		logger.Fatalf("unable to get RSA key storing path: %s", err)
+	}
 
-	if host != "" {
-		config.Host = host
+	keyPair, err := readRSAKey(keyPath)
+	if err != nil {
+		logger.Fatalf("unable tp read RSA key pair: %s\ntry run key-gen first", err)
+	}
+
+	var methods []byte
+	if ciphers == "" {
+		logger.Warnf("no cipher specified, default to PLAINTEXT (not recommended!)")
 	} else {
-		config.Host = "0.0.0.0"
-	}
-
-	config.PrivateKey = keyPair
-
-	if cipher == "" {
-		assert(fmt.Errorf("no cipher sepecified"))
-	}
-
-	cipherStrings := strings.Split(cipher, ",")
-
-	config.SupportedCipherMethods = make([]byte, len(cipherStrings))
-	for i, v := range cipherStrings {
-		switch strings.ToUpper(v) {
-		case "PLAINTEXT":
-			config.SupportedCipherMethods[i] = util.CIPHER_PLAINTEXT
-		case "AES-128-CFB":
-			config.SupportedCipherMethods[i] = util.CIPHER_AES_128_CFB
-		case "AES-192-CFB":
-			config.SupportedCipherMethods[i] = util.CIPHER_AES_192_CFB
-		case "AES-256-CFB":
-			config.SupportedCipherMethods[i] = util.CIPHER_AES_256_CFB
-		case "AES-128-CTR":
-			config.SupportedCipherMethods[i] = util.CIPHER_AES_128_CTR
-		case "AES-192-CTR":
-			config.SupportedCipherMethods[i] = util.CIPHER_AES_192_CFB
-		case "AES-256-CTR":
-			config.SupportedCipherMethods[i] = util.CIPHER_AES_256_CTR
-		case "AES-128-OFB":
-			config.SupportedCipherMethods[i] = util.CIPHER_AES_128_OFB
-		case "AES-192-OFB":
-			config.SupportedCipherMethods[i] = util.CIPHER_AES_192_OFB
-		case "AES-256-OFB":
-			config.SupportedCipherMethods[i] = util.CIPHER_AES_256_OFB
-		default:
-			assert(fmt.Errorf("invalid cipher method: %s", v))
+		cipherStrings := strings.Split(ciphers, ",")
+		methods = make([]byte, len(cipherStrings))
+		for i, v := range cipherStrings {
+			switch strings.ToUpper(v) {
+			case "PLAINTEXT":
+				methods[i] = protocol.CipherPlaintext
+			case "AES-128-CFB":
+				methods[i] = protocol.CipherAES128CFB
+			case "AES-192-CFB":
+				methods[i] = protocol.CipherAES192CFB
+			case "AES-256-CFB":
+				methods[i] = protocol.CipherAES256CFB
+			case "AES-128-CTR":
+				methods[i] = protocol.CipherAES128CTR
+			case "AES-192-CTR":
+				methods[i] = protocol.CipherAES192CTR
+			case "AES-256-CTR":
+				methods[i] = protocol.CipherAES256CTR
+			case "AES-128-OFB":
+				methods[i] = protocol.CipherAES128OFB
+			case "AES-192-OFB":
+				methods[i] = protocol.CipherAES192OFB
+			case "AES-256-OFB":
+				methods[i] = protocol.CipherAES256OFB
+			default:
+				logger.Fatalf("unrecognized cipher method: %s", v)
+			}
 		}
 	}
 
-	server, err := remote.NewServer(config)
-	assert(err)
+	srv, _ := server.NewServer(&server.Config{
+		Host:          host,
+		Port:          uint16(port),
+		RSAKey:        keyPair,
+		CipherMethods: methods,
+		Logger:        logger,
+	})
 
-	fmt.Printf("Groundhog server running on %s:%d\n", config.Host, config.Port)
-	if err := server.Start(); err != nil {
-		assert(err)
+	go func() {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+		shuttingDown := false
+		for true {
+			switch <-sigs {
+			case syscall.SIGINT, syscall.SIGTERM:
+				if !shuttingDown {
+					logger.Info("server shutdown in progress, press ctrl+c again for emergency shutdown")
+					shuttingDown = true
+					srv.Shutdown()
+					os.Exit(0)
+				} else {
+					logger.Info("emergency shutdown issued")
+					os.Exit(0)
+				}
+			}
+		}
+	}()
+
+	if err := srv.ListenAndServe(); err != nil {
+		logger.Errorf(err.Error())
 	}
 }
 
-func startClientMode() {
-	keyPath, err := util.GetRSAKeyPath()
-	assert(err)
-
-	keyPair, err := util.ReadRSAKey(keyPath)
-	assert(err)
-
-	if host == "" {
-		assert(fmt.Errorf("invalid host: %s", host))
-	}
-
-	config := &local.Config{
-		Host: host,
-		Port: port,
-		PrivateKey: keyPair,
-	}
-
-	switch strings.ToUpper(cipher) {
-	case "PLAINTEXT":
-		config.CipherMethod = util.CIPHER_PLAINTEXT
-	case "AES-128-CFB":
-		config.CipherMethod = util.CIPHER_AES_128_CFB
-	case "AES-192-CFB":
-		config.CipherMethod = util.CIPHER_AES_192_CFB
-	case "AES-256-CFB":
-		config.CipherMethod = util.CIPHER_AES_256_CFB
-	case "AES-128-CTR":
-		config.CipherMethod = util.CIPHER_AES_128_CTR
-	case "AES-192-CTR":
-		config.CipherMethod = util.CIPHER_AES_192_CFB
-	case "AES-256-CTR":
-		config.CipherMethod = util.CIPHER_AES_256_CTR
-	case "AES-128-OFB":
-		config.CipherMethod = util.CIPHER_AES_128_OFB
-	case "AES-192-OFB":
-		config.CipherMethod = util.CIPHER_AES_192_OFB
-	case "AES-256-OFB":
-		config.CipherMethod = util.CIPHER_AES_256_OFB
-	default:
-		assert(fmt.Errorf("invalid cipher method: %s", cipher))
-	}
-
-	client := local.NewClient(config)
-
-	socks5Config, err := socks5.GenerateDefaultConfig()
-	assert(err)
-
-	socks5Config.Port = socks5Port
-	socks5Config.Host = socks5Host
-	socks5Config.Dial = client.GetConn
-
-	server, err := socks5.NewServer(socks5Config)
-	assert(err)
-
-	fmt.Printf("SOCKS5 server running on %s:%d\n", socks5Config.Host, socks5Config.Port)
-	fmt.Printf("All traffic to SOCKS5 server routing through %s:%d\n", config.Host, config.Port)
-	if err := server.Start(); err != nil {
-		assert(err)
-	}
-}
-
-func startKeyGenMode() {
-	fmt.Println("Generating public/private rsa key pair...")
-	keyPair, err := rsa.GenerateKey(rand.Reader, 4096)
-	assert(err)
-
-	path, err := util.GetRSAKeyPath()
-	assert(err)
-
-	err = util.WriteRSAKey(path, keyPair)
-	assert(err)
-
-	fmt.Println("Done. PEM encoded key pair wrote to", path)
-}
-
-func assert(err error) {
+func clientMode() {
+	keyPath, err := getRSAKeyPath()
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		logger.Fatalf("unable to get RSA key storing path: %s", err)
 	}
+
+	keyPair, err := readRSAKey(keyPath)
+	if err != nil {
+		logger.Fatalf("unable tp read RSA key pair: %s\ntry run key-gen first", err)
+	}
+
+	dialer := &client.Client{
+		Host:   host,
+		Port:   uint16(port),
+		RSAKey: keyPair,
+		Logger: logger,
+	}
+
+	switch strings.ToUpper(ciphers) {
+	case "PLAINTEXT":
+		dialer.CipherMethod = protocol.CipherPlaintext
+	case "AES-128-CFB":
+		dialer.CipherMethod = protocol.CipherAES128CFB
+	case "AES-192-CFB":
+		dialer.CipherMethod = protocol.CipherAES192CFB
+	case "AES-256-CFB":
+		dialer.CipherMethod = protocol.CipherAES256CFB
+	case "AES-128-CTR":
+		dialer.CipherMethod = protocol.CipherAES128CTR
+	case "AES-192-CTR":
+		dialer.CipherMethod = protocol.CipherAES192CTR
+	case "AES-256-CTR":
+		dialer.CipherMethod = protocol.CipherAES256CTR
+	case "AES-128-OFB":
+		dialer.CipherMethod = protocol.CipherAES128OFB
+	case "AES-192-OFB":
+		dialer.CipherMethod = protocol.CipherAES192OFB
+	case "AES-256-OFB":
+		dialer.CipherMethod = protocol.CipherAES256OFB
+	default:
+		logger.Fatalf("unrecognized cipher method: %s", ciphers)
+	}
+
+	srv := socks5.NewServer(&socks5.Config{
+		Host:   socks5Host,
+		Port:   uint16(socks5Port),
+		Dialer: dialer,
+		Logger: logger,
+	})
+
+	go func() {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+		shuttingDown := false
+		for true {
+			switch <-sigs {
+			case syscall.SIGINT, syscall.SIGTERM:
+				if !shuttingDown {
+					logger.Info("client shutdown in progress, press ctrl+c again for emergency shutdown")
+					shuttingDown = true
+					srv.Shutdown()
+					os.Exit(0)
+				} else {
+					logger.Info("emergency shutdown issued")
+					os.Exit(0)
+				}
+			}
+		}
+	}()
+
+	if err := srv.ListenAndServe(); err != nil {
+		logger.Errorf(err.Error())
+	}
+}
+
+func keyGenMode() {
+	logger.Info("Generating public/private rsa key pair...")
+	keyPair, err := rsa.GenerateKey(rand.Reader, 4096)
+	if err != nil {
+		logger.Fatalf("unable to generate key pair: %s", err)
+	}
+
+	keyPath, err := getRSAKeyPath()
+	if err != nil {
+		logger.Fatalf("unable to get RSA key storing path: %s", err)
+	}
+
+	err = writeRSAKey(keyPath, keyPair)
+	if err != nil {
+		logger.Fatalf("unable to write key pair", err)
+	}
+
+	logger.Infof("Done. PEM encoded key pair wrote to %s", keyPath)
+}
+
+func getRSAKeyPath() (string, error) {
+	usr, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(usr.HomeDir, ".groundhog", "id_rsa"), nil
+}
+
+func readRSAKey(path string) (*rsa.PrivateKey, error) {
+	keyBytes, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	block, _ := pem.Decode(keyBytes)
+
+	keyPair, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return keyPair, nil
+}
+
+func writeRSAKey(path string, keyPair *rsa.PrivateKey) (error) {
+	folder := filepath.Join(path, "..")
+	os.Mkdir(folder, 0700)
+
+	pemString := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(keyPair),
+	})
+
+	if err := ioutil.WriteFile(path, pemString, 0600); err != nil {
+		return err
+	}
+
+	return nil
 }
