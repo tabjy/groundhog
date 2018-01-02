@@ -204,7 +204,7 @@ func (g *gndhog) init(ctx context.Context, conn net.Conn) {
 
 	g.logger.Tracef("request from %s to %s", g.client.RemoteAddr(), g.dst.String())
 
-	var cipherTarget io.ReadWriter
+	var cipherTarget net.Conn
 	ed := crypto.StreamEncryptDecrypter{
 		EncryptKey: g.sessionKey,
 		DecryptKey: g.sessionKey,

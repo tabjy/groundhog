@@ -74,33 +74,13 @@ func (ed *StreamEncryptDecrypter) Ciphertext(plaintext net.Conn) (net.Conn, erro
 		return nil, err
 	}
 
-	// logic here could be simpler if golang has a built-in duplex pipe.
-	cipherRdIn, cipherWtOut := io.Pipe()
-	cipherRdOut, cipherWtIn := io.Pipe()
-
-	ciphertext := &CipherConn{
+	return &CipherConn{
 		&readWriter{
-			cipherRdOut,
-			cipherWtOut,
+			&cipher.StreamReader{S: ed.EncryptStream, R: plaintext},
+			&cipher.StreamWriter{S: ed.DecryptStream, W: plaintext},
 		},
 		plaintext,
-	}
-
-	// decrypt ciphertext to plaintext
-	go func() {
-		decrypter := &cipher.StreamReader{S: ed.DecryptStream, R: cipherRdIn}
-		io.Copy(plaintext, decrypter)
-		ciphertext.Close() // which close the underlying plaintext
-	}()
-
-	// encrypt plaintext to ciphertext
-	go func() {
-		encrypter := &cipher.StreamWriter{S: ed.EncryptStream, W: cipherWtIn}
-		io.Copy(encrypter, plaintext)
-		ciphertext.Close()
-	}()
-
-	return ciphertext, nil
+	}, nil
 }
 
 // Plaintext takes a duplex io.ReadWriter with ciphertext, decrypt and return a
@@ -112,32 +92,13 @@ func (ed *StreamEncryptDecrypter) Plaintext(ciphertext net.Conn) (net.Conn, erro
 		return nil, err
 	}
 
-	plainRdIn, plainWtOut := io.Pipe()
-	plainRdOut, plainWtIn := io.Pipe()
-
-	plaintext := &CipherConn {
+	return &CipherConn{
 		&readWriter{
-			plainRdOut,
-			plainWtOut,
+			&cipher.StreamReader{S: ed.DecryptStream, R: ciphertext},
+			&cipher.StreamWriter{S: ed.EncryptStream, W: ciphertext},
 		},
 		ciphertext,
-	}
-
-	// encrypt plaintext to ciphertext
-	go func() {
-		encrypter := &cipher.StreamWriter{S: ed.EncryptStream, W: ciphertext}
-		io.Copy(encrypter, plainRdIn)
-		plaintext.Close()
-	}()
-
-	// decrypt ciphertext to plaintext
-	go func() {
-		decrypter := &cipher.StreamReader{S: ed.DecryptStream, R: ciphertext}
-		io.Copy(plainWtIn, decrypter)
-		plaintext.Close()
-	}()
-
-	return plaintext, nil
+	}, nil
 }
 
 // CipherConn implements net.Conn interface, with a underlying io.ReadWriter.
