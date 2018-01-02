@@ -1,10 +1,11 @@
 package crypto
 
 import (
-	"crypto/cipher"
-	"io"
-	"errors"
 	"crypto/aes"
+	"errors"
+	"io"
+	"net"
+	"crypto/cipher"
 )
 
 type readWriter struct {
@@ -68,36 +69,35 @@ func (ed *StreamEncryptDecrypter) initCipherStream() error {
 // corresponding ciphertext io.ReadWriter. Any ciphertext write to returned
 // io.ReadWriter will be decrypted and write to plaintext. Any plaintext read
 // from plaintext will be encrypted and write to returned io.ReadWriter.
-func (ed *StreamEncryptDecrypter) Ciphertext(plaintext io.ReadWriter) (io.ReadWriter, error) {
+func (ed *StreamEncryptDecrypter) Ciphertext(plaintext net.Conn) (net.Conn, error) {
 	if err := ed.initCipherStream(); err != nil {
 		return nil, err
 	}
 
 	// logic here could be simpler if golang has a built-in duplex pipe.
-	// net.Pipe is a solution, but seems too heavy,
-	// with possibility of causing memory leak if not careful
 	cipherRdIn, cipherWtOut := io.Pipe()
 	cipherRdOut, cipherWtIn := io.Pipe()
 
-	ciphertext := &readWriter{
-		cipherRdOut,
-		cipherWtOut,
+	ciphertext := &CipherConn{
+		&readWriter{
+			cipherRdOut,
+			cipherWtOut,
+		},
+		plaintext,
 	}
 
 	// decrypt ciphertext to plaintext
 	go func() {
 		decrypter := &cipher.StreamReader{S: ed.DecryptStream, R: cipherRdIn}
 		io.Copy(plaintext, decrypter)
-		cipherWtOut.Close()
-		cipherRdIn.Close()
+		ciphertext.Close() // which close the underlying plaintext
 	}()
 
 	// encrypt plaintext to ciphertext
 	go func() {
 		encrypter := &cipher.StreamWriter{S: ed.EncryptStream, W: cipherWtIn}
 		io.Copy(encrypter, plaintext)
-		cipherWtIn.Close()
-		cipherRdOut.Close()
+		ciphertext.Close()
 	}()
 
 	return ciphertext, nil
@@ -107,7 +107,7 @@ func (ed *StreamEncryptDecrypter) Ciphertext(plaintext io.ReadWriter) (io.ReadWr
 // corresponding plaintext io.ReadWriter. Any plaintext write to returned
 // io.ReadWriter will be encrypted and write to ciphertext. Any ciphertext read
 // from ciphertext will be decrypted and write to returned io.ReadWriter.
-func (ed *StreamEncryptDecrypter) Plaintext(ciphertext io.ReadWriter) (io.ReadWriter, error) {
+func (ed *StreamEncryptDecrypter) Plaintext(ciphertext net.Conn) (net.Conn, error) {
 	if err := ed.initCipherStream(); err != nil {
 		return nil, err
 	}
@@ -115,26 +115,47 @@ func (ed *StreamEncryptDecrypter) Plaintext(ciphertext io.ReadWriter) (io.ReadWr
 	plainRdIn, plainWtOut := io.Pipe()
 	plainRdOut, plainWtIn := io.Pipe()
 
-	plaintext := &readWriter{
-		plainRdOut,
-		plainWtOut,
+	plaintext := &CipherConn {
+		&readWriter{
+			plainRdOut,
+			plainWtOut,
+		},
+		ciphertext,
 	}
 
 	// encrypt plaintext to ciphertext
 	go func() {
 		encrypter := &cipher.StreamWriter{S: ed.EncryptStream, W: ciphertext}
 		io.Copy(encrypter, plainRdIn)
-		plainWtIn.Close()
-		plainRdOut.Close()
+		plaintext.Close()
 	}()
 
 	// decrypt ciphertext to plaintext
 	go func() {
 		decrypter := &cipher.StreamReader{S: ed.DecryptStream, R: ciphertext}
 		io.Copy(plainWtIn, decrypter)
-		plainWtOut.Close()
-		plainRdIn.Close()
+		plaintext.Close()
 	}()
 
 	return plaintext, nil
+}
+
+// CipherConn implements net.Conn interface, with a underlying io.ReadWriter.
+type CipherConn struct {
+	io.ReadWriter
+	net.Conn
+}
+
+func (c *CipherConn) Read(b []byte) (n int, err error) {
+	if _, err := c.Conn.Read([]byte{}); err != nil {
+		return 0, err
+	}
+	return c.ReadWriter.Read(b)
+}
+
+func (c *CipherConn) Write(b []byte) (n int, err error) {
+	if _, err := c.Conn.Write([]byte{}); err != nil {
+		return 0, err
+	}
+	return c.ReadWriter.Write(b)
 }

@@ -150,7 +150,7 @@ func (c *proxyConn) connect(ctx context.Context) (net.Conn, error) {
 		return nil, err
 	}
 
-	var cipherTarget io.ReadWriter
+	var cipherTarget net.Conn
 	ed := crypto.StreamEncryptDecrypter{
 		EncryptKey: c.sessionKey,
 		DecryptKey: c.sessionKey,
@@ -209,10 +209,7 @@ func (c *proxyConn) connect(ctx context.Context) (net.Conn, error) {
 		}
 	}
 
-	return &CipherConn {
-		cipherTarget,
-		c.target,
-	}, nil
+	return cipherTarget, nil
 }
 
 func (c *proxyConn) writePubKey() error {
@@ -313,18 +310,4 @@ func (c *proxyConn) readReply() error {
 	}
 
 	return nil
-}
-
-// CipherConn implements net.Conn interface, with a underlying io.ReadWriter.
-type CipherConn struct {
-	io.ReadWriter
-	net.Conn
-}
-
-func (c *CipherConn) Read(b []byte)  (n int, err error) {
-	return c.ReadWriter.Read(b)
-}
-
-func (c *CipherConn) Write(b []byte)  (n int, err error) {
-	return c.ReadWriter.Write(b)
 }

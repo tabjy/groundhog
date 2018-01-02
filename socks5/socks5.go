@@ -87,7 +87,8 @@ type socks struct {
 }
 
 func (s *socks) init(ctx context.Context, conn net.Conn) {
-	defer conn.Close()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	// watchdog to close connections if context cancelled
 	go func() {

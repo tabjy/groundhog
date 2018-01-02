@@ -4,6 +4,7 @@ package util
 import (
 	"io"
 	"sync"
+	"net"
 )
 
 // Proxy connect two ReadWriter, forward data between them in a full-duplex
@@ -16,6 +17,7 @@ func Proxy(lhs io.ReadWriter, rhs io.ReadWriter) (lhsWritten, rhsWritten int64, 
 	wg.Add(1)
 	go func() {
 		lhsWritten, err = io.Copy(lhs, rhs)
+		closeNetConn(lhs, rhs)
 		if err != nil {
 			wg.Done()
 		} else {
@@ -27,6 +29,7 @@ func Proxy(lhs io.ReadWriter, rhs io.ReadWriter) (lhsWritten, rhsWritten int64, 
 	wg.Add(1)
 	go func() {
 		rhsWritten, err = io.Copy(rhs, lhs)
+		closeNetConn(lhs, rhs)
 		if err != nil {
 			wg.Done()
 		} else {
@@ -36,4 +39,12 @@ func Proxy(lhs io.ReadWriter, rhs io.ReadWriter) (lhsWritten, rhsWritten int64, 
 
 	wg.Wait()
 	return
+}
+
+func closeNetConn(rws... io.ReadWriter) {
+	for _, v := range rws {
+		if conn, ok := v.(net.Conn); ok {
+			conn.Close()
+		}
+	}
 }

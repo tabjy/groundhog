@@ -87,7 +87,7 @@ func initLogger() {
 	case "fatal":
 		level = yagl.LvlFatal
 	default:
-		fmt.Fprintf(os.Stderr, "unrecognized logging level: %s\n", level)
+		fmt.Fprintf(os.Stderr, "unrecognized logging level: %s\n", logLevel)
 		os.Exit(1)
 	}
 
