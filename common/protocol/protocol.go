@@ -4,8 +4,8 @@
 package protocol
 
 import (
-	"strings"
 	"errors"
+	"strings"
 )
 
 // Address type indication byte used for SOCKS5 and Groundhog protocol

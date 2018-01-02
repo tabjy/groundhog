@@ -4,6 +4,7 @@ package socks5
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,7 +14,6 @@ import (
 	"github.com/tabjy/groundhog/common/util"
 	"github.com/tabjy/groundhog/common"
 	"github.com/tabjy/yagl"
-	"errors"
 )
 
 // Config defines optional configurations for a SOCKS5 server. The zero value

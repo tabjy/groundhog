@@ -1,26 +1,25 @@
 package client
 
 import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"strconv"
 	"crypto/rsa"
 
-	"github.com/tabjy/yagl"
-	"net"
-	"crypto/rand"
-	"context"
-	"fmt"
-	"crypto/x509"
-	"io"
-	"crypto/sha256"
-	"bytes"
-	"strconv"
+	"github.com/tabjy/groundhog/common"
 	"github.com/tabjy/groundhog/common/crypto"
 	"github.com/tabjy/groundhog/common/protocol"
-	"github.com/tabjy/groundhog/common"
-	"bufio"
-	"errors"
-	"crypto/cipher"
-	"crypto/aes"
-	"github.com/tabjy/groundhog/common/util"
+	"github.com/tabjy/yagl"
 )
 
 // Client implements common.Dialer support all exported fields of net.Dialer.
@@ -210,60 +209,10 @@ func (c *proxyConn) connect(ctx context.Context) (net.Conn, error) {
 		}
 	}
 
-	ret, end := net.Pipe()
-
-	go func() {
-		if _, _, err := util.Proxy(cipherTarget, end); err != nil {
-			c.logger.Errorf("failed to proxy connections: %s", err)
-			return
-		}
-	}()
-
-	return ret, nil
-
-	/*
-	var err error
-
-	// TODO: more cipher implementation
-	var plainSide, cipherSide net.Conn
-	errCh := make(chan error)
-	switch c.cipher {
-	case util.CIPHER_PLAINTEXT:
-		return c.target, nil
-	case util.CIPHER_AES_128_OFB, util.CIPHER_AES_192_OFB, util.CIPHER_AES_256_OFB:
-		plainSide, cipherSide, err = crypto.CreateAESOFBPipe(c.sessionKey, errCh)
-	case util.CIPHER_AES_128_CTR, util.CIPHER_AES_192_CTR, util.CIPHER_AES_256_CTR:
-		plainSide, cipherSide, err = crypto.CreateAESCTRPipe(c.sessionKey, errCh)
-	case util.CIPHER_AES_128_CFB, util.CIPHER_AES_192_CFB, util.CIPHER_AES_256_CFB:
-		plainSide, cipherSide, err = crypto.CreateAESCFBPipe(c.sessionKey, errCh)
-	default:
-		return nil, fmt.Errorf(util.ERR_TPL_GROUNDHOG_CIPHER_NOT_SUPPORTED, c.cipher)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	go util.IOCopy(c.target, cipherSide, errCh)
-	go util.IOCopy(cipherSide, c.target, errCh)
-
-	// shut down connect on error
-	// TODO: fix client-side server-side logic inconsistency
-	go func() {
-		for err := range errCh {
-			if err != nil {
-				c.target.Close()
-				util.GetLogger().Println(err)
-				return
-			}
-		}
-
-	}()
-
-	return plainSide, nil
-	*/
-
-	return nil, nil
+	return &CipherConn {
+		cipherTarget,
+		c.target,
+	}, nil
 }
 
 func (c *proxyConn) writePubKey() error {
@@ -364,4 +313,18 @@ func (c *proxyConn) readReply() error {
 	}
 
 	return nil
+}
+
+// CipherConn implements net.Conn interface, with a underlying io.ReadWriter.
+type CipherConn struct {
+	io.ReadWriter
+	net.Conn
+}
+
+func (c *CipherConn) Read(b []byte)  (n int, err error) {
+	return c.ReadWriter.Read(b)
+}
+
+func (c *CipherConn) Write(b []byte)  (n int, err error) {
+	return c.ReadWriter.Write(b)
 }

@@ -3,19 +3,15 @@ package main
 import (
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/x509"
-	"encoding/pem"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
-	"os/user"
-	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/tabjy/groundhog/client"
+	"github.com/tabjy/groundhog/cmd/groundhog/internal"
 	"github.com/tabjy/groundhog/common/protocol"
 	"github.com/tabjy/groundhog/server"
 	"github.com/tabjy/groundhog/socks5"
@@ -103,12 +99,12 @@ func initLogger() {
 }
 
 func serverMode() {
-	keyPath, err := getRSAKeyPath()
+	keyPath, err := internal.GetRSAKeyPath()
 	if err != nil {
 		logger.Fatalf("unable to get RSA key storing path: %s", err)
 	}
 
-	keyPair, err := readRSAKey(keyPath)
+	keyPair, err := internal.ReadRSAKey(keyPath)
 	if err != nil {
 		logger.Fatalf("unable tp read RSA key pair: %s\ntry run key-gen first", err)
 	}
@@ -182,12 +178,12 @@ func serverMode() {
 }
 
 func clientMode() {
-	keyPath, err := getRSAKeyPath()
+	keyPath, err := internal.GetRSAKeyPath()
 	if err != nil {
 		logger.Fatalf("unable to get RSA key storing path: %s", err)
 	}
 
-	keyPair, err := readRSAKey(keyPath)
+	keyPair, err := internal.ReadRSAKey(keyPath)
 	if err != nil {
 		logger.Fatalf("unable tp read RSA key pair: %s\ntry run key-gen first", err)
 	}
@@ -264,56 +260,15 @@ func keyGenMode() {
 		logger.Fatalf("unable to generate key pair: %s", err)
 	}
 
-	keyPath, err := getRSAKeyPath()
+	keyPath, err := internal.GetRSAKeyPath()
 	if err != nil {
 		logger.Fatalf("unable to get RSA key storing path: %s", err)
 	}
 
-	err = writeRSAKey(keyPath, keyPair)
+	err = internal.WriteRSAKey(keyPath, keyPair)
 	if err != nil {
 		logger.Fatalf("unable to write key pair", err)
 	}
 
 	logger.Infof("Done. PEM encoded key pair wrote to %s", keyPath)
-}
-
-func getRSAKeyPath() (string, error) {
-	usr, err := user.Current()
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Join(usr.HomeDir, ".groundhog", "id_rsa"), nil
-}
-
-func readRSAKey(path string) (*rsa.PrivateKey, error) {
-	keyBytes, err := ioutil.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	block, _ := pem.Decode(keyBytes)
-
-	keyPair, err := x509.ParsePKCS1PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, err
-	}
-
-	return keyPair, nil
-}
-
-func writeRSAKey(path string, keyPair *rsa.PrivateKey) (error) {
-	folder := filepath.Join(path, "..")
-	os.Mkdir(folder, 0700)
-
-	pemString := pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(keyPair),
-	})
-
-	if err := ioutil.WriteFile(path, pemString, 0600); err != nil {
-		return err
-	}
-
-	return nil
 }

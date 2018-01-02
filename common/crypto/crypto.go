@@ -12,6 +12,8 @@ type readWriter struct {
 	io.Writer
 }
 
+// StreamEncryptDecrypter contains information needed to encrypt/decrypt a
+// connection.
 type StreamEncryptDecrypter struct {
 	EncryptKey []byte
 	DecryptKey []byte
