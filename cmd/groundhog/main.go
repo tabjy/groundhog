@@ -106,7 +106,7 @@ func serverMode() {
 
 	keyPair, err := internal.ReadRSAKey(keyPath)
 	if err != nil {
-		logger.Fatalf("unable tp read RSA key pair: %s\ntry run key-gen first", err)
+		logger.Fatalf("unable to read RSA key pair: %s\ntry run key-gen first", err)
 	}
 
 	var methods []byte
