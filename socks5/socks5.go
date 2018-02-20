@@ -4,6 +4,7 @@ package socks5
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,7 +14,6 @@ import (
 	"github.com/tabjy/groundhog/common/util"
 	"github.com/tabjy/groundhog/common"
 	"github.com/tabjy/yagl"
-	"errors"
 )
 
 // Config defines optional configurations for a SOCKS5 server. The zero value
@@ -87,7 +87,8 @@ type socks struct {
 }
 
 func (s *socks) init(ctx context.Context, conn net.Conn) {
-	defer conn.Close()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	// watchdog to close connections if context cancelled
 	go func() {

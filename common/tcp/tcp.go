@@ -13,7 +13,6 @@ import (
 
 	"github.com/tabjy/groundhog/common/adt"
 	"github.com/tabjy/yagl"
-
 )
 
 // ErrServerClosed is returned by the Server's Serve, and ListenAndServe,
@@ -24,6 +23,8 @@ var ErrServerClosed = errors.New("common: Server closed")
 // methods if being called before calling Listen.
 var ErrServerNotListening = errors.New("common: Server not listening")
 
+// Handler interface specified required function(s) a handler must have to handel
+// a TCP connection.
 type Handler interface {
 	ServeTCP(ctx context.Context, conn net.Conn)
 }
@@ -45,6 +46,7 @@ func (h *echoHandler) ServeTCP(ctx context.Context, conn net.Conn) {
 	}
 }
 
+// EchoHandler simply echoes all request back to response.
 var EchoHandler = &echoHandler{}
 
 // A Server defines parameters for running a TCP server. The zero value for
@@ -53,7 +55,7 @@ type Server struct {
 	Host string // IP address or hostname to listen on. Leave empty for an unspecified address.
 	Port uint16 // Port to listen on. A port number is automatically chosen if left empty or 0.
 
-	Handler Handler
+	Handler Handler // Handler for handle a TCP connection. If nil, EchoHandler will be used.
 
 	// Logger specifies an optional logger.
 	// If nil, logging goes to os.Stderr via a yagl standard logger.
@@ -130,6 +132,7 @@ func (srv *Server) Serve() error {
 				srv.conns.Remove(conn)
 				srv.logger().Tracef("%d connections still active", srv.conns.Len())
 			}()
+
 			srv.conns.Add(conn)
 			srv.logger().Tracef("new connection from %v", conn.RemoteAddr())
 
@@ -144,9 +147,8 @@ func (srv *Server) Serve() error {
 				// test if because conn already closed
 				if !strings.Contains(err.Error(), "use of closed network connection") {
 					srv.logger().Panicf("failed to close connection from %v, %v", conn.RemoteAddr(), err)
-					// goroutine stops here
+					// goroutine stops here, panic thrown
 				}
-				srv.logger().Warnf("connection from %v is already closed", conn.RemoteAddr())
 			}
 			srv.logger().Tracef("connection from %v is now closed", conn.RemoteAddr())
 		}()

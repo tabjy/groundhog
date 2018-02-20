@@ -1,12 +1,12 @@
 package protocol
 
 import (
-	"net"
 	"bytes"
 	"errors"
-	"io"
 	"fmt"
+	"io"
 	"strconv"
+	"net"
 )
 
 // Addr defines a SOCKS5 address-port schema. Such struct packages
